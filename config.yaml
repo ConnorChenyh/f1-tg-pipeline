@@ -1,0 +1,69 @@
+window_hours: 24
+max_drafts: 1
+heat_threshold: 60
+
+digest:
+  title: "围场过去24H新闻"
+  min_items: 3
+  max_items: 5
+  item_min_chars: 320
+  item_target_chars: 420
+  item_max_chars: 500
+
+reddit:
+  subreddit: formula1
+  sub_limit: 50
+  search_limit: 30
+  search_keywords:
+    - F1
+    - Verstappen
+    - Ferrari
+    - qualifying
+
+rss_feeds:
+  - name: motorsport
+    url: https://www.motorsport.com/rss/f1/news/
+  - name: autosport
+    url: https://www.autosport.com/rss/feed/f1
+  - name: espn
+    url: https://www.espn.com/espn/rss/f1/news
+
+twitter:
+  enabled: true
+  search_limit: 30
+  search_queries:
+    - F1
+    - Formula1
+
+deepseek:
+  base_url: https://api.deepseek.com/v1
+  model_topics: deepseek-v4-pro
+  model_writer: deepseek-v4-pro
+  temperature: 0.2
+  max_retries: 1
+  fact_check_enabled: true
+  final_review_enabled: true
+
+images:
+  fetch_og_image: false
+  og_timeout_sec: 8
+  width: 1080
+  height: 1440
+
+article_fetch:
+  enabled: true
+  use_jina: true
+  timeout_sec: 15
+  max_chars: 3500
+  delay_sec: 1.0
+
+telegram:
+  timeout_sec: 30
+  max_text_chars: 1000
+
+scheduler:
+  timezone: Asia/Hong_Kong
+  daily_at: "09:00"
+  hours: 24
+  push_telegram: true
+  run_on_start: false

@@ -1,0 +1,17 @@
+services:
+  f1-tg-pipeline:
+    build: .
+    container_name: f1-tg-pipeline
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override these without editing config.yaml if needed.
+      SCHEDULE_TIMEZONE: ${SCHEDULE_TIMEZONE:-Asia/Hong_Kong}
+      SCHEDULE_DAILY_AT: ${SCHEDULE_DAILY_AT:-09:00}
+      SCHEDULE_HOURS: ${SCHEDULE_HOURS:-24}
+      SCHEDULE_PUSH_TELEGRAM: ${SCHEDULE_PUSH_TELEGRAM:-true}
+      SCHEDULE_RUN_ON_START: ${SCHEDULE_RUN_ON_START:-false}
+    volumes:
+      - ./output:/app/output
+      - ./config.yaml:/app/config.yaml:ro
