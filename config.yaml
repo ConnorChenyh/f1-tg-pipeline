@@ -28,6 +28,37 @@ season_context:
       reason: "originally scheduled for April 10-12 as round 4; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
     - name: Saudi Arabian Grand Prix
       reason: "originally scheduled for April 17-19 as round 5; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
+  team_baseline:
+    as_of: "after R9 British Grand Prix, before R10 Belgian Grand Prix, 2026"
+    teams:
+      - name: Mercedes
+        chassis: "F1 W17"
+        constructors_position: 1
+        constructors_points: 333
+        performance: "clear championship benchmark so far: Antonelli and Russell lead the drivers' standings, and Mercedes has won seven of the first nine Grands Prix. The car is strong over race distance and especially credible on energy deployment and overall efficiency under the new rules."
+        technical: "Mercedes uses the Mercedes-AMG F1 M17 power unit. Public technical reporting has highlighted front/floor flow management and refinement rather than a visually radical rear-wing concept; treat it as the reference package for consistency and points conversion."
+        caveat: "Do not call Mercedes unbeatable: Ferrari has won the two most recent non-Mercedes victories and is closing the gap."
+      - name: Ferrari
+        chassis: "SF-26"
+        constructors_position: 2
+        constructors_points: 255
+        performance: "second in the Constructors' Championship and the main Mercedes challenger. Hamilton won Barcelona-Catalunya and Leclerc won Silverstone, so the SF-26 is race-winning, especially as Ferrari updates have improved the car after the opening phase."
+        technical: "Ferrari's SF-26 is associated with aggressive aerodynamic interpretation: the flip-flop/upside-down rotating rear wing, Flick Tail Mode near the exhaust, extensive floor/diffuser updates, and a switch to pushrod front and rear suspension. Ferrari's rotating rear wing flips fully upside down to create a larger air gap and reduce drag on straights."
+        caveat: "When discussing FTM, use the English term Flick Tail Mode if unsure; do not invent a Chinese technical name."
+      - name: McLaren
+        chassis: "MCL40"
+        constructors_position: 3
+        constructors_points: 179
+        performance: "third in the Constructors' Championship. The reigning champion team remains inside the big four but has not matched Mercedes or Ferrari over the first nine races; Norris and Piastri sit fifth and sixth in the drivers' standings."
+        technical: "McLaren has focused on aerodynamic refinement, including front wing and active-system kinematics changes, plus floor and rear-wheel wake management updates in Miami/Canada. It is less visually radical than Ferrari/Red Bull in rear-wing execution."
+        caveat: "Do not describe McLaren as the current title benchmark unless fresh evidence shows a major turnaround."
+      - name: Red Bull Racing
+        chassis: "RB22"
+        constructors_position: 4
+        constructors_points: 128
+        performance: "fourth in the Constructors' Championship after a difficult start to 2026. The RB22 has shown strong energy deployment potential from the new Red Bull Ford power unit, but Red Bull has lagged Mercedes, Ferrari and McLaren overall; Verstappen is seventh and Hadjar eighth in the drivers' standings."
+        technical: "Red Bull introduced its own upside-down rotating rear wing in Miami. Compared with Ferrari, the Red Bull version produces a larger slot gap with the upper element rising above the endplates, and technical reporting describes its flap rotation as opposite to Ferrari's system. Red Bull also brought sidepod, floor and rear-wheel wake updates."
+        caveat: "Be careful with Red Bull topics: rear-wing reliability has been a story after Austria/Silverstone incidents, so separate confirmed failures from transfer or contract speculation."
   races:
     - round: 1
       name: Australian Grand Prix

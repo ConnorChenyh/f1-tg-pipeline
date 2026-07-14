@@ -4,6 +4,10 @@ from datetime import date, datetime
 from typing import Any
 
 
+def _clean_sentence(value: Any) -> str:
+    return str(value).strip().rstrip(".")
+
+
 def _parse_date(value: str) -> date:
     return date.fromisoformat(value)
 
@@ -76,7 +80,36 @@ def build_season_context_prompt(config: dict[str, Any], now: datetime) -> str:
                 items.append(str(item))
         lines.append("- Cancelled/removed from the current calendar: " + "; ".join(items) + ".")
 
+    team_baseline = season_cfg.get("team_baseline", {}) or {}
+    team_items = team_baseline.get("teams", []) or []
+    if team_items:
+        as_of = team_baseline.get("as_of")
+        header = "- Current big-four car and performance baseline"
+        if as_of:
+            header += f" ({as_of})"
+        lines.append(header + ":")
+        for team in team_items:
+            name = team.get("name")
+            chassis = team.get("chassis")
+            points = team.get("constructors_points")
+            standing = team.get("constructors_position")
+            detail_parts = []
+            if chassis:
+                detail_parts.append(f"chassis {chassis}")
+            if standing and points is not None:
+                detail_parts.append(f"P{standing} in Constructors with {points} points")
+            elif standing:
+                detail_parts.append(f"P{standing} in Constructors")
+            elif points is not None:
+                detail_parts.append(f"{points} Constructors points")
+            for key in ("performance", "technical", "caveat"):
+                value = team.get(key)
+                if value:
+                    detail_parts.append(_clean_sentence(value))
+            if name and detail_parts:
+                lines.append(f"  - {name}: " + "; ".join(detail_parts) + ".")
+
     lines.append(
-        "- Use this calendar only as temporal background. If evidence conflicts with it, state the conflict instead of silently rewriting facts."
+        "- Use this calendar and team baseline only as temporal background. If evidence conflicts with it, state the conflict instead of silently rewriting facts."
     )
     return "\n".join(lines)
