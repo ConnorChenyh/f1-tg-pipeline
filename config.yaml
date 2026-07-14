@@ -10,6 +10,12 @@ digest:
   item_target_chars: 430
   item_max_chars: 500
 
+topic_history:
+  enabled: true
+  dedupe_days: 7
+  similarity_threshold: 0.72
+  path: output/topic_history.json
+
 reddit:
   subreddit: formula1
   sub_limit: 50

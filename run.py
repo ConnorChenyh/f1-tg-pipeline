@@ -16,6 +16,7 @@ from analyzer.context import RunContext
 from analyzer.evidence import enrich_topics_with_evidence
 from analyzer.normalize import normalize_posts
 from analyzer.score import score_posts
+from analyzer.topic_history import append_topic_history, filter_recent_topics
 from analyzer.topics import extract_topics
 from collectors.reddit import collect_reddit
 from collectors.rss import collect_rss
@@ -179,6 +180,7 @@ def main() -> int:
         logging.info("Dry run complete: %d posts saved", len(scored))
         return 0
 
+    skipped_recent_topics: list[dict] = []
     if args.mock:
         topics = enrich_topics_with_evidence(mock_topics(scored), scored)
         topics = enrich_evidence_with_articles(topics, config)
@@ -195,6 +197,12 @@ def main() -> int:
         )
         topics = enrich_topics_with_evidence(topics, scored)
         topics = enrich_evidence_with_articles(topics, config)
+        topics, skipped_recent_topics = filter_recent_topics(
+            topics,
+            ROOT,
+            config,
+            run_context.generated_at,
+        )
 
     save_json(output_dir / "topics.json", topics)
     save_json(output_dir / "run_context.json", {
@@ -204,11 +212,12 @@ def main() -> int:
     })
 
     if not topics:
-        logging.error("No topics passed heat threshold (%s)", heat_threshold)
+        logging.error("No fresh topics available after heat/history filtering")
         return 1
 
     # Cap topics used in digest
     digest_topics = topics[:digest_max_items]
+    effective_min_items = min(digest_min_items, len(digest_topics))
     draft_dir = output_dir / "drafts" / "digest"
     fact_check_notes: list[str] = []
 
@@ -221,7 +230,7 @@ def main() -> int:
                 digest_topics,
                 run_context,
                 digest_title=digest_title,
-                min_items=digest_min_items,
+                min_items=effective_min_items,
                 max_items=digest_max_items,
                 item_min_chars=digest_item_min_chars,
                 item_target_chars=digest_item_target_chars,
@@ -233,6 +242,7 @@ def main() -> int:
         image_paths = generate_images_for_digest(draft, digest_topics, draft_dir, config)
         meta = {
             "topics": digest_topics,
+            "skipped_recent_topics": skipped_recent_topics,
             "images": image_paths,
             "fact_check_notes": fact_check_notes,
             "run_context": {
@@ -246,6 +256,8 @@ def main() -> int:
         if args.push_telegram:
             result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
             logging.info("Telegram push result: %s", result)
+        if not args.telegram_dry_run:
+            append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
     except Exception as exc:
         logging.error("Failed to generate digest: %s", exc)
         return 1
