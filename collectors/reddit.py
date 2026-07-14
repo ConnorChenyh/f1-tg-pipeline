@@ -195,6 +195,7 @@ def collect_reddit(config: dict) -> list[PostItem]:
 
     posts: list[PostItem] = []
     seen_urls: set[str] = set()
+    used_rss_fallback = False
 
     sub_items = _run_rdt(["sub", subreddit, "--limit", str(sub_limit)])
     for item in sub_items:
@@ -208,14 +209,18 @@ def collect_reddit(config: dict) -> list[PostItem]:
             if post.url not in seen_urls:
                 seen_urls.add(post.url)
                 posts.append(post)
+        used_rss_fallback = bool(posts)
 
-    for keyword in keywords:
-        search_items = _run_rdt(["search", keyword, "--limit", str(search_limit)])
-        for item in search_items:
-            post = _post_from_rdt(item, f"search:{keyword}")
-            if post and post.url not in seen_urls:
-                seen_urls.add(post.url)
-                posts.append(post)
+    if used_rss_fallback:
+        logger.info("Reddit search skipped because rdt-cli subreddit access is unavailable")
+    else:
+        for keyword in keywords:
+            search_items = _run_rdt(["search", keyword, "--limit", str(search_limit)])
+            for item in search_items:
+                post = _post_from_rdt(item, f"search:{keyword}")
+                if post and post.url not in seen_urls:
+                    seen_urls.add(post.url)
+                    posts.append(post)
 
     logger.info("Reddit collector: %d posts", len(posts))
     return posts
