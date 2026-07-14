@@ -141,6 +141,42 @@ class QualityGuardTests(unittest.TestCase):
 
         self.assertNotIn("unanchored_social_video_claim", codes)
 
+    def test_rich_evidence_item_too_short_is_warned(self) -> None:
+        draft = {
+            "title": "围场过去24H新闻",
+            "hook": "",
+            "items": [
+                {
+                    "ordinal": "一",
+                    "headline": "比利时站预热",
+                    "content": "比利时站本周末开赛，现役车手中仅四人曾在斯帕夺冠。",
+                }
+            ],
+            "sources": ["https://example.com/source"],
+        }
+
+        issues = validate_digest(
+            draft,
+            [
+                {
+                    "evidence_urls": ["https://example.com/source"],
+                    "evidence_posts": [
+                        {"url": "https://example.com/source", "fetch_status": "ok", "article_content": "x" * 500}
+                    ],
+                }
+            ],
+            min_items=1,
+            max_items=5,
+            min_item_chars=420,
+        )
+        codes = {issue.code for issue in issues}
+
+        self.assertIn("too_short_rich_evidence_item", codes)
+        self.assertNotIn(
+            "too_short_rich_evidence_item",
+            {issue.code for issue in blocking_issues(issues)},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

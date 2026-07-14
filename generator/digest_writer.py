@@ -99,7 +99,13 @@ def generate_digest(
         raise ValueError("digest response is not an object")
 
     draft["title"] = digest_title
-    quality_issues = validate_digest(draft, topics, min_items=min_items, max_items=max_items)
+    quality_issues = validate_digest(
+        draft,
+        topics,
+        min_items=min_items,
+        max_items=max_items,
+        min_item_chars=item_min_chars,
+    )
 
     fact_check_notes: list[str] = []
     if fact_check_enabled:
@@ -120,6 +126,7 @@ def generate_digest(
             topics,
             min_items=min_items,
             max_items=max_items,
+            min_item_chars=item_min_chars,
         )
         draft, review_notes = final_review_digest(
             client,
@@ -131,7 +138,13 @@ def generate_digest(
             quality_issues=issue_dicts(review_quality_issues),
         )
 
-    final_quality_issues = validate_digest(draft, topics, min_items=min_items, max_items=max_items)
+    final_quality_issues = validate_digest(
+        draft,
+        topics,
+        min_items=min_items,
+        max_items=max_items,
+        min_item_chars=item_min_chars,
+    )
     blockers = blocking_issues(final_quality_issues)
     if blockers:
         raise ValueError(f"digest quality guard failed: {issue_summary(blockers)}")

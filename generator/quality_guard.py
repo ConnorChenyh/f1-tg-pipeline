@@ -141,11 +141,58 @@ def _validate_sources(draft: dict[str, Any], topics: list[dict[str, Any]] | None
     return issues
 
 
+def _topic_has_rich_evidence(topic: dict[str, Any] | None) -> bool:
+    if not topic:
+        return False
+    evidence_posts = topic.get("evidence_posts", []) or []
+    if len(evidence_posts) >= 2:
+        return True
+    return any(
+        post.get("fetch_status") == "ok" and (post.get("article_content") or "").strip()
+        for post in evidence_posts
+        if isinstance(post, dict)
+    )
+
+
+def _validate_item_lengths(
+    draft: dict[str, Any],
+    topics: list[dict[str, Any]] | None,
+    min_item_chars: int | None,
+) -> list[QualityIssue]:
+    if min_item_chars is None:
+        return []
+
+    items = draft.get("items", [])
+    if not isinstance(items, list):
+        return []
+
+    issues: list[QualityIssue] = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, str):
+            continue
+        topic = topics[index - 1] if topics and index - 1 < len(topics) else None
+        if len(content) < min_item_chars and _topic_has_rich_evidence(topic):
+            issues.append(
+                QualityIssue(
+                    "too_short_rich_evidence_item",
+                    "warn",
+                    f"items[{index}].content",
+                    f"该条有多条证据或网页原文，但正文只有 {len(content)} 字，低于配置下限 {min_item_chars}；应基于证据补足背景、数字、时间线、不确定性和意义。",
+                )
+            )
+
+    return issues
+
+
 def validate_digest(
     draft: dict[str, Any],
     topics: list[dict[str, Any]] | None = None,
     min_items: int | None = None,
     max_items: int | None = None,
+    min_item_chars: int | None = None,
 ) -> list[QualityIssue]:
     issues: list[QualityIssue] = []
     fields = _draft_text_fields(draft)
@@ -177,6 +224,7 @@ def validate_digest(
     _append_pattern_issues(issues, fields, TECHNICAL_TERM_PATTERNS, "warn")
     _append_pattern_issues(issues, fields, STYLE_RISK_PATTERNS, "warn")
     _append_source_anchor_issues(issues, fields)
+    issues.extend(_validate_item_lengths(draft, topics, min_item_chars))
     issues.extend(_validate_sources(draft, topics))
     return issues
 
