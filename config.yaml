@@ -21,12 +21,13 @@ season_context:
   notes:
     - "Use the current 2026 calendar to judge timing: by mid-July the season is not new; the opening flyaways and early European rounds have already happened."
     - "Madrid/Madring is scheduled as the Spanish Grand Prix venue in September, so a July social video about Madring is not evidence that SF-26 has just made its race debut there."
-    - "Treat calendar-change claims such as Bahrain returning or double races at Baku/Singapore as speculative unless current evidence explicitly reports an official change."
+    - "Bahrain and Saudi Arabia were April rounds on the original 2026 calendar, but F1/FIA confirmed they would not take place due to the ongoing Middle East situation, safety and wellbeing concerns, and regional instability linked to the Iran war / US-Israel-Iran conflict. Alternatives were considered, but no substitutions were made in April, creating the long gap from Japan to Miami."
+    - "Treat calendar-change claims such as Bahrain returning later in 2026 or double races at Baku/Singapore as speculative unless current evidence explicitly reports an official F1/FIA calendar change."
   cancelled_or_removed:
     - name: Bahrain Grand Prix
-      reason: "included in the original 2026 calendar window but absent from the current official 22-race calendar"
+      reason: "originally scheduled for April 10-12 as round 4; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
     - name: Saudi Arabian Grand Prix
-      reason: "included in the original 2026 calendar window but absent from the current official 22-race calendar"
+      reason: "originally scheduled for April 17-19 as round 5; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
   races:
     - round: 1
       name: Australian Grand Prix
