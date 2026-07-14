@@ -16,6 +16,7 @@ from analyzer.context import RunContext
 from analyzer.evidence import enrich_topics_with_evidence
 from analyzer.normalize import normalize_posts
 from analyzer.score import score_posts
+from analyzer.season_context import build_season_context_prompt
 from analyzer.topic_history import append_topic_history, filter_recent_topics
 from analyzer.topics import extract_topics
 from collectors.reddit import collect_reddit
@@ -153,6 +154,7 @@ def main() -> int:
     digest_item_target_chars = int(digest_cfg.get("item_target_chars", 300))
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
     run_context = RunContext.now(window_hours)
+    run_context = run_context.with_season_context(build_season_context_prompt(config, run_context.generated_at))
 
     output_dir = build_output_dir(ROOT)
     logging.info("Output directory: %s", output_dir)

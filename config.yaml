@@ -16,6 +16,135 @@ topic_history:
   similarity_threshold: 0.72
   path: output/topic_history.json
 
+season_context:
+  enabled: true
+  notes:
+    - "Use the current 2026 calendar to judge timing: by mid-July the season is not new; the opening flyaways and early European rounds have already happened."
+    - "Madrid/Madring is scheduled as the Spanish Grand Prix venue in September, so a July social video about Madring is not evidence that SF-26 has just made its race debut there."
+    - "Treat calendar-change claims such as Bahrain returning or double races at Baku/Singapore as speculative unless current evidence explicitly reports an official change."
+  cancelled_or_removed:
+    - name: Bahrain Grand Prix
+      reason: "included in the original 2026 calendar window but absent from the current official 22-race calendar"
+    - name: Saudi Arabian Grand Prix
+      reason: "included in the original 2026 calendar window but absent from the current official 22-race calendar"
+  races:
+    - round: 1
+      name: Australian Grand Prix
+      circuit: Albert Park
+      start: "2026-03-06"
+      end: "2026-03-08"
+    - round: 2
+      name: Chinese Grand Prix
+      circuit: Shanghai
+      start: "2026-03-13"
+      end: "2026-03-15"
+      sprint: true
+    - round: 3
+      name: Japanese Grand Prix
+      circuit: Suzuka
+      start: "2026-03-27"
+      end: "2026-03-29"
+    - round: 4
+      name: Miami Grand Prix
+      circuit: Miami
+      start: "2026-05-01"
+      end: "2026-05-03"
+      sprint: true
+    - round: 5
+      name: Canadian Grand Prix
+      circuit: Montreal
+      start: "2026-05-22"
+      end: "2026-05-24"
+      sprint: true
+    - round: 6
+      name: Monaco Grand Prix
+      circuit: Monaco
+      start: "2026-06-05"
+      end: "2026-06-07"
+    - round: 7
+      name: Barcelona-Catalunya Grand Prix
+      circuit: Barcelona-Catalunya
+      start: "2026-06-12"
+      end: "2026-06-14"
+    - round: 8
+      name: Austrian Grand Prix
+      circuit: Red Bull Ring
+      start: "2026-06-26"
+      end: "2026-06-28"
+    - round: 9
+      name: British Grand Prix
+      circuit: Silverstone
+      start: "2026-07-03"
+      end: "2026-07-05"
+      sprint: true
+    - round: 10
+      name: Belgian Grand Prix
+      circuit: Spa-Francorchamps
+      start: "2026-07-17"
+      end: "2026-07-19"
+    - round: 11
+      name: Hungarian Grand Prix
+      circuit: Hungaroring
+      start: "2026-07-24"
+      end: "2026-07-26"
+    - round: 12
+      name: Dutch Grand Prix
+      circuit: Zandvoort
+      start: "2026-08-21"
+      end: "2026-08-23"
+      sprint: true
+    - round: 13
+      name: Italian Grand Prix
+      circuit: Monza
+      start: "2026-09-04"
+      end: "2026-09-06"
+    - round: 14
+      name: Spanish Grand Prix
+      circuit: Madring
+      start: "2026-09-11"
+      end: "2026-09-13"
+    - round: 15
+      name: Azerbaijan Grand Prix
+      circuit: Baku
+      start: "2026-09-24"
+      end: "2026-09-26"
+    - round: 16
+      name: Singapore Grand Prix
+      circuit: Marina Bay
+      start: "2026-10-09"
+      end: "2026-10-11"
+      sprint: true
+    - round: 17
+      name: United States Grand Prix
+      circuit: Austin
+      start: "2026-10-23"
+      end: "2026-10-25"
+    - round: 18
+      name: Mexico City Grand Prix
+      circuit: Mexico City
+      start: "2026-10-30"
+      end: "2026-11-01"
+    - round: 19
+      name: São Paulo Grand Prix
+      circuit: Interlagos
+      start: "2026-11-06"
+      end: "2026-11-08"
+    - round: 20
+      name: Las Vegas Grand Prix
+      circuit: Las Vegas Strip
+      start: "2026-11-19"
+      end: "2026-11-21"
+    - round: 21
+      name: Qatar Grand Prix
+      circuit: Lusail
+      start: "2026-11-27"
+      end: "2026-11-29"
+    - round: 22
+      name: Abu Dhabi Grand Prix
+      circuit: Yas Marina
+      start: "2026-12-04"
+      end: "2026-12-06"
+
 reddit:
   subreddit: formula1
   sub_limit: 50
