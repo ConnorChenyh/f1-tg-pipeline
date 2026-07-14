@@ -94,6 +94,7 @@ Useful overrides in `.env`:
 
 ```bash
 SCHEDULE_TIMEZONE=Asia/Hong_Kong
+TZ=Asia/Hong_Kong
 SCHEDULE_DAILY_AT=12:00
 SCHEDULE_HOURS=24
 SCHEDULE_PUSH_TELEGRAM=true

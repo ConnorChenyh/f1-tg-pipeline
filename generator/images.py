@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 from PIL import Image, ImageDraw, ImageFont
-
-logger = logging.getLogger(__name__)
 
 F1_RED = "#E10600"
 F1_DARK = "#15151E"
@@ -87,59 +84,6 @@ def _measure_lines_height(
         bbox = draw.textbbox((0, 0), line or "A", font=font)
         total += (bbox[3] - bbox[1]) + line_spacing
     return max(0, total - line_spacing)
-
-
-def render_cover(title: str, subtitle: str, width: int, height: int) -> Image.Image:
-    img = Image.new("RGB", (width, height), F1_DARK)
-    draw = ImageDraw.Draw(img)
-
-    draw.rectangle([(0, 0), (width, 18)], fill=F1_RED)
-    draw.rectangle([(0, height - 18), (width, height)], fill=F1_RED)
-
-    title_font = _load_font(72, bold=True)
-    subtitle_font = _load_font(36)
-
-    _draw_multiline(draw, title, (80, 180), title_font, F1_LIGHT, width - 160)
-    _draw_multiline(draw, subtitle, (80, height - 280), subtitle_font, "#CFCFD4", width - 160)
-    draw.text((80, height - 120), "F1 24H Digest", font=_load_font(28), fill=F1_RED)
-
-    return img
-
-
-def render_fact_card(title: str, bullets: list[str], width: int, height: int) -> Image.Image:
-    img = Image.new("RGB", (width, height), F1_LIGHT)
-    draw = ImageDraw.Draw(img)
-    draw.rectangle([(0, 0), (width, 120)], fill=F1_DARK)
-
-    title_font = _load_font(42, bold=True)
-    body_font = _load_font(34)
-
-    _draw_multiline(draw, title, (60, 36), title_font, F1_LIGHT, width - 120)
-
-    y = 180
-    for bullet in bullets[:5]:
-        line = f"• {bullet}"
-        y = _draw_multiline(draw, line, (60, y), body_font, F1_DARK, width - 120, line_spacing=18)
-        y += 20
-
-    return img
-
-
-def render_source_card(sources: list[str], width: int, height: int) -> Image.Image:
-    img = Image.new("RGB", (width, height), F1_DARK)
-    draw = ImageDraw.Draw(img)
-
-    title_font = _load_font(48, bold=True)
-    body_font = _load_font(28)
-
-    draw.text((80, 120), "信息来源", font=title_font, fill=F1_LIGHT)
-    y = 240
-    for source in sources[:4]:
-        y = _draw_multiline(draw, source, (80, y), body_font, "#D9D9DE", width - 160, line_spacing=10)
-        y += 24
-
-    draw.text((80, height - 160), "仅供参考，以官方信息为准", font=_load_font(30), fill=F1_RED)
-    return img
 
 
 def render_item_card(ordinal: str, headline: str, content: str, width: int, height: int) -> Image.Image:
@@ -271,63 +215,5 @@ def generate_images_for_digest(
         slide_path = images_dir / f"slide_{idx:02d}.png"
         card.save(slide_path, format="PNG")
         saved_paths.append(str(slide_path.relative_to(output_root)))
-
-    return saved_paths
-
-
-def generate_images_for_draft(
-    draft: dict[str, Any],
-    draft_dir: Path,
-    config: dict[str, Any],
-) -> list[str]:
-    image_cfg = config.get("images", {})
-    width = int(image_cfg.get("width", 1080))
-    height = int(image_cfg.get("height", 1440))
-    fetch_og = bool(image_cfg.get("fetch_og_image", True))
-    og_timeout = int(image_cfg.get("og_timeout_sec", 8))
-
-    images_dir = draft_dir / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
-
-    saved_paths: list[str] = []
-
-    cover = render_cover(
-        draft.get("title", "F1 热点"),
-        draft.get("hook", ""),
-        width,
-        height,
-    )
-    cover_path = images_dir / "cover.png"
-    cover.save(cover_path, format="PNG")
-    saved_paths.append(str(cover_path.relative_to(draft_dir.parent.parent)))
-
-    body = draft.get("body", [])
-    sources = draft.get("sources", [])
-    og_saved = False
-
-    if fetch_og and sources:
-        og_bytes = fetch_og_image(sources[0], og_timeout)
-        if og_bytes:
-            try:
-                og_image = Image.open(io.BytesIO(og_bytes))
-                og_image = _fit_image(og_image.convert("RGB"), (width, height))
-                slide_path = images_dir / "slide_02.png"
-                og_image.save(slide_path, format="PNG")
-                saved_paths.append(str(slide_path.relative_to(draft_dir.parent.parent)))
-                og_saved = True
-            except Exception as exc:
-                logger.info("Failed to save og:image: %s", exc)
-
-    if not og_saved:
-        bullets = body[:3] if body else draft.get("image_briefs", [])[:3]
-        fact_card = render_fact_card("关键看点", bullets, width, height)
-        slide_path = images_dir / "slide_02.png"
-        fact_card.save(slide_path, format="PNG")
-        saved_paths.append(str(slide_path.relative_to(draft_dir.parent.parent)))
-
-    source_card = render_source_card(sources or ["暂无来源"], width, height)
-    source_path = images_dir / "slide_last.png"
-    source_card.save(source_path, format="PNG")
-    saved_paths.append(str(source_path.relative_to(draft_dir.parent.parent)))
 
     return saved_paths

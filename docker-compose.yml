@@ -7,6 +7,7 @@ services:
       - .env
     environment:
       # Override these without editing config.yaml if needed.
+      TZ: ${SCHEDULE_TIMEZONE:-Asia/Hong_Kong}
       SCHEDULE_TIMEZONE: ${SCHEDULE_TIMEZONE:-Asia/Hong_Kong}
       SCHEDULE_DAILY_AT: ${SCHEDULE_DAILY_AT:-12:00}
       SCHEDULE_HOURS: ${SCHEDULE_HOURS:-24}

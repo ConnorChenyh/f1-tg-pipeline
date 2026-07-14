@@ -73,7 +73,7 @@ def run_pipeline(config_path: Path, hours: int, push_telegram: bool) -> int:
         cmd.append("--push-telegram")
 
     logging.info("Starting scheduled pipeline: %s", " ".join(cmd))
-    completed = subprocess.run(cmd, cwd=ROOT, check=False)
+    completed = subprocess.run(cmd, cwd=ROOT, check=False, env=os.environ.copy())
     logging.info("Scheduled pipeline exited with code %s", completed.returncode)
     return completed.returncode
 
@@ -96,6 +96,9 @@ def main() -> int:
     scheduler_cfg = config.get("scheduler", {})
 
     timezone_name = os.getenv("SCHEDULE_TIMEZONE", scheduler_cfg.get("timezone", "Asia/Hong_Kong"))
+    os.environ.setdefault("TZ", timezone_name)
+    if hasattr(time, "tzset"):
+        time.tzset()
     tz = ZoneInfo(timezone_name)
     daily_at = _parse_daily_at(os.getenv("SCHEDULE_DAILY_AT", scheduler_cfg.get("daily_at", "12:00")))
     hours = _env_int("SCHEDULE_HOURS", int(scheduler_cfg.get("hours", config.get("window_hours", 24))))

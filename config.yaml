@@ -45,8 +45,6 @@ deepseek:
   final_review_enabled: true
 
 images:
-  fetch_og_image: false
-  og_timeout_sec: 8
   width: 1080
   height: 1440
 
