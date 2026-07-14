@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import feedparser
 import yaml
 
 from collectors.base import PostItem
@@ -134,6 +135,57 @@ def _post_from_rdt(item: dict, source_label: str) -> PostItem | None:
     )
 
 
+def _entry_datetime(entry: feedparser.FeedParserDict) -> datetime | None:
+    for key in ("published_parsed", "updated_parsed"):
+        parsed = entry.get(key)
+        if parsed:
+            return datetime(*parsed[:6], tzinfo=timezone.utc)
+    return None
+
+
+def _collect_subreddit_rss(subreddit: str, limit: int) -> list[PostItem]:
+    url = f"https://www.reddit.com/r/{subreddit}/.rss"
+    try:
+        parsed = feedparser.parse(
+            url,
+            request_headers={"User-Agent": "Mozilla/5.0 f1-tg-pipeline/1.0"},
+        )
+    except Exception as exc:
+        logger.warning("Reddit RSS fallback failed for r/%s: %s", subreddit, exc)
+        return []
+
+    if getattr(parsed, "bozo", False) and not parsed.entries:
+        logger.warning("Reddit RSS parse issue for r/%s: %s", subreddit, getattr(parsed, "bozo_exception", ""))
+        return []
+
+    posts: list[PostItem] = []
+    for entry in parsed.entries[:limit]:
+        title = (entry.get("title") or "").strip()
+        summary = (entry.get("summary") or "").strip()
+        link = entry.get("link") or ""
+        if not title or not link:
+            continue
+
+        created = _entry_datetime(entry)
+        if created is None:
+            created = datetime.now(timezone.utc)
+
+        text = f"{title}\n\n{summary}".strip() if summary else title
+        posts.append(
+            PostItem(
+                source="reddit",
+                text=text[:4000],
+                title=title,
+                url=link,
+                created_at=created,
+                extra={"source_label": f"rss:{subreddit}", "subreddit": subreddit},
+            )
+        )
+
+    logger.info("Reddit RSS fallback: %d posts", len(posts))
+    return posts
+
+
 def collect_reddit(config: dict) -> list[PostItem]:
     reddit_cfg = config.get("reddit", {})
     subreddit = reddit_cfg.get("subreddit", "formula1")
@@ -150,6 +202,12 @@ def collect_reddit(config: dict) -> list[PostItem]:
         if post and post.url not in seen_urls:
             seen_urls.add(post.url)
             posts.append(post)
+
+    if not posts:
+        for post in _collect_subreddit_rss(subreddit, sub_limit):
+            if post.url not in seen_urls:
+                seen_urls.add(post.url)
+                posts.append(post)
 
     for keyword in keywords:
         search_items = _run_rdt(["search", keyword, "--limit", str(search_limit)])
