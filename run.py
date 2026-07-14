@@ -111,6 +111,59 @@ def build_output_dir(root: Path) -> Path:
     return out
 
 
+def backfill_recent_topics(
+    fresh_topics: list[dict],
+    skipped_topics: list[dict],
+    original_topics: list[dict],
+    min_items: int,
+) -> tuple[list[dict], list[dict]]:
+    if len(fresh_topics) >= min_items:
+        return fresh_topics, skipped_topics
+
+    reusable_reasons = ("shared_url:", "text_similarity:", "story_db:")
+    reusable_ids = {
+        item.get("id")
+        for item in skipped_topics
+        if str(item.get("reason") or "").startswith(reusable_reasons)
+    }
+    if not reusable_ids:
+        return fresh_topics, skipped_topics
+
+    selected_ids = {topic.get("id") for topic in fresh_topics}
+    backfilled: list[dict] = []
+    for topic in original_topics:
+        topic_id = topic.get("id")
+        if topic_id in selected_ids or topic_id not in reusable_ids:
+            continue
+        item = dict(topic)
+        notes = list(item.get("evidence_quality_notes", []) or [])
+        notes.append("recent duplicate backfilled to satisfy minimum digest item count")
+        item["evidence_quality_notes"] = notes
+        backfilled.append(item)
+        selected_ids.add(topic_id)
+        if len(fresh_topics) + len(backfilled) >= min_items:
+            break
+
+    if not backfilled:
+        return fresh_topics, skipped_topics
+
+    backfilled_ids = {topic.get("id") for topic in backfilled}
+    remaining_skipped = [
+        item
+        for item in skipped_topics
+        if item.get("id") not in backfilled_ids
+    ]
+    for topic in backfilled:
+        remaining_skipped.append(
+            {
+                "id": topic.get("id"),
+                "title_zh": topic.get("title_zh"),
+                "reason": "backfilled_recent_duplicate_for_min_items",
+            }
+        )
+    return fresh_topics + backfilled, remaining_skipped
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="F1 hot topics to Xiaohongshu draft pipeline")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Path to config.yaml")
@@ -217,6 +270,7 @@ def main() -> int:
         topics, skipped_by_evidence = filter_topics_by_evidence_quality(topics, config)
         if skipped_by_evidence:
             skipped_recent_topics.extend(skipped_by_evidence)
+        history_candidate_topics = topics
         topics, skipped_by_story_db = filter_topics_seen_in_story_db(
             topics,
             ROOT,
@@ -233,6 +287,12 @@ def main() -> int:
         )
         if skipped_by_topic_history:
             skipped_recent_topics.extend(skipped_by_topic_history)
+        topics, skipped_recent_topics = backfill_recent_topics(
+            topics,
+            skipped_recent_topics,
+            history_candidate_topics,
+            digest_min_items,
+        )
 
     save_json(output_dir / "topics.json", topics)
     save_json(output_dir / "run_context.json", {
