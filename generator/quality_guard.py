@@ -158,8 +158,9 @@ def _validate_item_lengths(
     draft: dict[str, Any],
     topics: list[dict[str, Any]] | None,
     min_item_chars: int | None,
+    max_item_chars: int | None,
 ) -> list[QualityIssue]:
-    if min_item_chars is None:
+    if min_item_chars is None and max_item_chars is None:
         return []
 
     items = draft.get("items", [])
@@ -174,7 +175,16 @@ def _validate_item_lengths(
         if not isinstance(content, str):
             continue
         topic = topics[index - 1] if topics and index - 1 < len(topics) else None
-        if len(content) < min_item_chars and _topic_has_rich_evidence(topic):
+        if max_item_chars is not None and len(content) > max_item_chars:
+            issues.append(
+                QualityIssue(
+                    "too_long_item",
+                    "warn",
+                    f"items[{index}].content",
+                    f"该条正文 {len(content)} 字，超过单图上限 {max_item_chars}；应删除重复说明和次要背景，确保完整显示在一张图内。",
+                )
+            )
+        if min_item_chars is not None and len(content) < min_item_chars and _topic_has_rich_evidence(topic):
             issues.append(
                 QualityIssue(
                     "too_short_rich_evidence_item",
@@ -193,6 +203,7 @@ def validate_digest(
     min_items: int | None = None,
     max_items: int | None = None,
     min_item_chars: int | None = None,
+    max_item_chars: int | None = None,
 ) -> list[QualityIssue]:
     issues: list[QualityIssue] = []
     fields = _draft_text_fields(draft)
@@ -224,7 +235,7 @@ def validate_digest(
     _append_pattern_issues(issues, fields, TECHNICAL_TERM_PATTERNS, "warn")
     _append_pattern_issues(issues, fields, STYLE_RISK_PATTERNS, "warn")
     _append_source_anchor_issues(issues, fields)
-    issues.extend(_validate_item_lengths(draft, topics, min_item_chars))
+    issues.extend(_validate_item_lengths(draft, topics, min_item_chars, max_item_chars))
     issues.extend(_validate_sources(draft, topics))
     return issues
 

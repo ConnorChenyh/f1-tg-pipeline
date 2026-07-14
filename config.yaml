@@ -1,14 +1,14 @@
 window_hours: 24
 max_drafts: 1
-heat_threshold: 60
+heat_threshold: 55
 
 digest:
   title: "围场过去24H新闻"
-  min_items: 3
+  min_items: 4
   max_items: 5
-  item_min_chars: 420
-  item_target_chars: 560
-  item_max_chars: 680
+  item_min_chars: 340
+  item_target_chars: 430
+  item_max_chars: 500
 
 reddit:
   subreddit: formula1

@@ -83,11 +83,14 @@ def _measure_lines_height(
     font: ImageFont.ImageFont,
     line_spacing: int,
 ) -> int:
-    total = 0
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line or "A", font=font)
-        total += (bbox[3] - bbox[1]) + line_spacing
-    return max(0, total - line_spacing)
+    if not lines:
+        return 0
+    return len(lines) * _line_advance(draw, font, line_spacing) - line_spacing
+
+
+def _line_advance(draw: ImageDraw.ImageDraw, font: ImageFont.ImageFont, line_spacing: int) -> int:
+    bbox = draw.textbbox((0, 0), "国Ay", font=font)
+    return (bbox[3] - bbox[1]) + line_spacing
 
 
 def render_item_card(ordinal: str, headline: str, content: str, width: int, height: int) -> Image.Image:
@@ -127,7 +130,7 @@ def render_item_card(ordinal: str, headline: str, content: str, width: int, heig
     chosen_font: ImageFont.ImageFont | None = None
     chosen_lines: list[str] = []
     chosen_spacing = 14
-    for size in range(38, 23, -2):
+    for size in range(34, 21, -2):
         font = _load_font(size)
         spacing = max(10, size // 3)
         lines = _wrap_text(draw, text, font, max_width)
@@ -138,19 +141,21 @@ def render_item_card(ordinal: str, headline: str, content: str, width: int, heig
             break
 
     if chosen_font is None:
-        chosen_font = _load_font(24)
+        chosen_font = _load_font(22)
         chosen_spacing = 8
         chosen_lines = _wrap_text(draw, text, chosen_font, max_width)
-        while chosen_lines and _measure_lines_height(draw, chosen_lines + ["…"], chosen_font, chosen_spacing) > body_height:
+        while chosen_lines and _measure_lines_height(draw, chosen_lines, chosen_font, chosen_spacing) > body_height:
             chosen_lines.pop()
         if chosen_lines:
             chosen_lines[-1] = chosen_lines[-1].rstrip("。；，,") + "…"
 
     y = body_top
+    advance = _line_advance(draw, chosen_font, chosen_spacing)
     for line in chosen_lines:
+        if y + advance > body_bottom:
+            break
         draw.text((margin_x, y), line, font=chosen_font, fill="#202026")
-        bbox = draw.textbbox((margin_x, y), line or "A", font=chosen_font)
-        y = bbox[3] + chosen_spacing
+        y += advance
 
     draw.text((margin_x, height - 58), "围场过去24H新闻", font=_load_font(24), fill="#DADAE0")
 

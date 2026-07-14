@@ -35,6 +35,7 @@ Return JSON with this exact shape:
 }}
 
 Rules:
+- Return 4 to 6 candidate topics when the input contains enough distinct stories
 - heat_score is 0-100
 - publish_recommendation must be "publish" or "skip"
 - skip rumors, pure flame wars, or posts without verifiable facts
@@ -69,6 +70,8 @@ def extract_topics(
     posts: list[PostItem],
     heat_threshold: int,
     run_context: RunContext,
+    min_topics: int = 3,
+    max_topics: int = 6,
 ) -> list[dict[str, Any]]:
     if not posts:
         return []
@@ -84,17 +87,32 @@ def extract_topics(
     if not isinstance(topics, list):
         raise ValueError("topics response is not a list")
 
-    filtered: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     for topic in topics:
         if not isinstance(topic, dict):
             continue
         if topic.get("publish_recommendation") == "skip":
             continue
+        candidates.append(topic)
+
+    candidates.sort(key=lambda t: int(t.get("heat_score", 0)), reverse=True)
+
+    filtered: list[dict[str, Any]] = []
+    for topic in candidates:
         heat = int(topic.get("heat_score", 0))
         if heat < heat_threshold:
             continue
         filtered.append(topic)
 
-    filtered.sort(key=lambda t: int(t.get("heat_score", 0)), reverse=True)
+    if len(filtered) < min_topics:
+        seen_ids = {id(topic) for topic in filtered}
+        for topic in candidates:
+            if id(topic) in seen_ids:
+                continue
+            filtered.append(topic)
+            if len(filtered) >= min_topics:
+                break
+
+    filtered = filtered[:max_topics]
     logger.info("Topics extracted: %d (after filter)", len(filtered))
     return filtered

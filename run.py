@@ -185,7 +185,14 @@ def main() -> int:
         client = None
     else:
         client = DeepSeekClient(config)
-        topics = extract_topics(client, scored, heat_threshold, run_context)
+        topics = extract_topics(
+            client,
+            scored,
+            heat_threshold,
+            run_context,
+            min_topics=digest_min_items,
+            max_topics=digest_max_items,
+        )
         topics = enrich_topics_with_evidence(topics, scored)
         topics = enrich_evidence_with_articles(topics, config)
 

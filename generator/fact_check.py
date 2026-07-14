@@ -113,6 +113,7 @@ Rules:
 - Fix every deterministic quality guard issue before returning JSON
 - Preserve the configured per-item length unless evidence is genuinely thin; do not compress article-backed items into short summaries
 - For article-backed or multi-evidence items, expand with only verified context when a content field is too short
+- If an item is too long, remove repetition and secondary detail first; keep it within the configured one-image limit
 - For social/video-only evidence, write “视频显示/帖文称/讨论称” instead of unanchored fact wording
 - Avoid ambiguous translations such as 新科冠军 unless evidence clearly supports the exact meaning
 - Check technical terms against evidence wording; if a Chinese translation is not clearly standard, keep the English term or write English plus a short Chinese explanation

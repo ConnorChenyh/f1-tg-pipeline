@@ -177,6 +177,32 @@ class QualityGuardTests(unittest.TestCase):
             {issue.code for issue in blocking_issues(issues)},
         )
 
+    def test_item_too_long_is_warned(self) -> None:
+        draft = {
+            "title": "围场过去24H新闻",
+            "hook": "",
+            "items": [
+                {
+                    "ordinal": "一",
+                    "headline": "标题",
+                    "content": "正文" * 260,
+                }
+            ],
+            "sources": ["https://example.com/source"],
+        }
+
+        issues = validate_digest(
+            draft,
+            [{"evidence_urls": ["https://example.com/source"]}],
+            min_items=1,
+            max_items=5,
+            max_item_chars=500,
+        )
+        codes = {issue.code for issue in issues}
+
+        self.assertIn("too_long_item", codes)
+        self.assertNotIn("too_long_item", {issue.code for issue in blocking_issues(issues)})
+
 
 if __name__ == "__main__":
     unittest.main()

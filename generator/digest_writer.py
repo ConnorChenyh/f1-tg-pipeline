@@ -34,7 +34,7 @@ Return JSON with this exact shape:
     {{
       "ordinal": "一",
       "headline": "小标题（简短）",
-      "content": "6-9句说明，适合放进一张文字图片，仅基于证据"
+      "content": "5-7句说明，适合完整放进一张文字图片，仅基于证据"
     }},
     {{
       "ordinal": "二",
@@ -52,8 +52,10 @@ Rules:
 - ordinals must be Chinese numerals: 一、二、三、四、五
 - Each item covers ONE distinct topic from the input
 - Each item content should be {item_min_chars}-{item_max_chars} Chinese characters, target around {item_target_chars}
-- If a topic has article_content or at least two evidence entries, do not return a short summary; expand with verified background, timeline, involved parties, direct quote/number when available, uncertainty level, and why it matters
+- Never exceed {item_max_chars} Chinese characters for item content; it must fit on one image
+- If a topic has article_content or at least two evidence entries, avoid a short summary; add verified background, involved parties, direct quote/number when available, uncertainty level, and why it matters
 - If evidence is genuinely thin or social-only, use fewer words rather than inventing details, but still explain clearly what is known, what is unknown, and why the uncertainty matters
+- Avoid repetitive caveats; state uncertainty once, then move on
 - Write enough detail for a standalone text image: background, key fact, direct quote/number when available, context, uncertainty, and why it matters
 - Use each evidence.content as the source of truth; model_summary is secondary context only
 - When content_basis is article_content, summarize/translate from article_content, not the title or RSS text
@@ -105,6 +107,7 @@ def generate_digest(
         min_items=min_items,
         max_items=max_items,
         min_item_chars=item_min_chars,
+        max_item_chars=item_max_chars,
     )
 
     fact_check_notes: list[str] = []
@@ -127,6 +130,7 @@ def generate_digest(
             min_items=min_items,
             max_items=max_items,
             min_item_chars=item_min_chars,
+            max_item_chars=item_max_chars,
         )
         draft, review_notes = final_review_digest(
             client,
@@ -144,6 +148,7 @@ def generate_digest(
         min_items=min_items,
         max_items=max_items,
         min_item_chars=item_min_chars,
+        max_item_chars=item_max_chars,
     )
     blockers = blocking_issues(final_quality_issues)
     if blockers:
