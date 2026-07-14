@@ -16,6 +16,59 @@ topic_history:
   similarity_threshold: 0.72
   path: output/topic_history.json
 
+story_db:
+  enabled: true
+  path: output/story_memory.sqlite3
+  retention_days: 30
+
+shortlist:
+  enabled: true
+  limit: 80
+  min_score: 0
+  similarity_threshold: 0.84
+  time_decay_half_life_hours: 24
+  external_article_bonus: 18
+  cross_source_bonus: 12
+  social_only_score_cap: 850
+  max_social_only_posts: 12
+
+evidence_gate:
+  enabled: true
+  allow_social_only_heat: 88
+  min_article_backed_topics: 2
+
+source_tiers:
+  official:
+    weight: 1.8
+    domains:
+      - formula1.com
+      - fia.com
+  tier1_media:
+    weight: 1.45
+    domains:
+      - autosport.com
+      - motorsport.com
+      - espn.com
+      - skysports.com
+      - bbc.com
+      - the-race.com
+  specialist_media:
+    weight: 1.25
+    domains:
+      - racingnews365.com
+      - planetf1.com
+      - formu1a.uno
+      - auto-motor-und-sport.de
+  rss:
+    weight: 1.0
+    sources:
+      - rss
+  social:
+    weight: 0.72
+    sources:
+      - reddit
+      - twitter
+
 season_context:
   enabled: true
   notes:

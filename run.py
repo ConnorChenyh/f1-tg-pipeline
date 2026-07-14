@@ -14,9 +14,18 @@ from dotenv import load_dotenv
 from analyzer.article_fetcher import enrich_evidence_with_articles
 from analyzer.context import RunContext
 from analyzer.evidence import enrich_topics_with_evidence
+from analyzer.evidence_gate import filter_topics_by_evidence_quality
 from analyzer.normalize import normalize_posts
 from analyzer.score import score_posts
 from analyzer.season_context import build_season_context_prompt
+from analyzer.shortlist import shortlist_posts
+from analyzer.story_db import (
+    filter_topics_seen_in_story_db,
+    init_story_db,
+    prune_story_db,
+    record_candidates,
+    record_published_topics,
+)
 from analyzer.topic_history import append_topic_history, filter_recent_topics
 from analyzer.topics import extract_topics
 from collectors.reddit import collect_reddit
@@ -155,6 +164,9 @@ def main() -> int:
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
     run_context = RunContext.now(window_hours)
     run_context = run_context.with_season_context(build_season_context_prompt(config, run_context.generated_at))
+    run_id = run_context.generated_at.strftime("%Y-%m-%d_%H%M%S")
+    init_story_db(ROOT, config)
+    prune_story_db(ROOT, config, run_context.generated_at)
 
     output_dir = build_output_dir(ROOT)
     logging.info("Output directory: %s", output_dir)
@@ -173,8 +185,11 @@ def main() -> int:
     normalized = normalize_posts(posts, window_hours)
     scored = score_posts(normalized)
     save_json(output_dir / "raw_posts.json", [p.to_dict() for p in scored])
+    shortlisted = shortlist_posts(scored, config, run_context.generated_at)
+    save_json(output_dir / "shortlisted_posts.json", [p.to_dict() for p in shortlisted])
+    record_candidates(shortlisted, ROOT, config, run_id, run_context.generated_at)
 
-    if not scored:
+    if not shortlisted:
         logging.error("No posts collected in the last %s hours", window_hours)
         return 1
 
@@ -184,27 +199,40 @@ def main() -> int:
 
     skipped_recent_topics: list[dict] = []
     if args.mock:
-        topics = enrich_topics_with_evidence(mock_topics(scored), scored)
+        topics = enrich_topics_with_evidence(mock_topics(shortlisted), shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
         client = None
     else:
         client = DeepSeekClient(config)
         topics = extract_topics(
             client,
-            scored,
+            shortlisted,
             heat_threshold,
             run_context,
             min_topics=digest_min_items,
             max_topics=digest_max_items,
         )
-        topics = enrich_topics_with_evidence(topics, scored)
+        topics = enrich_topics_with_evidence(topics, shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
-        topics, skipped_recent_topics = filter_recent_topics(
+        topics, skipped_by_evidence = filter_topics_by_evidence_quality(topics, config)
+        if skipped_by_evidence:
+            skipped_recent_topics.extend(skipped_by_evidence)
+        topics, skipped_by_story_db = filter_topics_seen_in_story_db(
             topics,
             ROOT,
             config,
             run_context.generated_at,
         )
+        if skipped_by_story_db:
+            skipped_recent_topics.extend(skipped_by_story_db)
+        topics, skipped_by_topic_history = filter_recent_topics(
+            topics,
+            ROOT,
+            config,
+            run_context.generated_at,
+        )
+        if skipped_by_topic_history:
+            skipped_recent_topics.extend(skipped_by_topic_history)
 
     save_json(output_dir / "topics.json", topics)
     save_json(output_dir / "run_context.json", {
@@ -260,6 +288,7 @@ def main() -> int:
             logging.info("Telegram push result: %s", result)
         if not args.telegram_dry_run:
             append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
+            record_published_topics(digest_topics, ROOT, config, run_context.generated_at)
     except Exception as exc:
         logging.error("Failed to generate digest: %s", exc)
         return 1
