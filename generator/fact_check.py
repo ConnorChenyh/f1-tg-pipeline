@@ -111,6 +111,8 @@ Rules:
 - Treat model summaries as secondary context, not source truth
 - Fix causal/temporal errors (e.g. conflating separate events)
 - Fix every deterministic quality guard issue before returning JSON
+- Preserve the configured per-item length unless evidence is genuinely thin; do not compress article-backed items into short summaries
+- For article-backed or multi-evidence items, expand with only verified context when a content field is too short
 - For social/video-only evidence, write “视频显示/帖文称/讨论称” instead of unanchored fact wording
 - Avoid ambiguous translations such as 新科冠军 unless evidence clearly supports the exact meaning
 - Check technical terms against evidence wording; if a Chinese translation is not clearly standard, keep the English term or write English plus a short Chinese explanation

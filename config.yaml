@@ -6,9 +6,9 @@ digest:
   title: "围场过去24H新闻"
   min_items: 3
   max_items: 5
-  item_min_chars: 320
-  item_target_chars: 420
-  item_max_chars: 500
+  item_min_chars: 420
+  item_target_chars: 560
+  item_max_chars: 680
 
 reddit:
   subreddit: formula1
