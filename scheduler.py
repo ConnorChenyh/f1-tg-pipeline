@@ -97,7 +97,7 @@ def main() -> int:
 
     timezone_name = os.getenv("SCHEDULE_TIMEZONE", scheduler_cfg.get("timezone", "Asia/Hong_Kong"))
     tz = ZoneInfo(timezone_name)
-    daily_at = _parse_daily_at(os.getenv("SCHEDULE_DAILY_AT", scheduler_cfg.get("daily_at", "09:00")))
+    daily_at = _parse_daily_at(os.getenv("SCHEDULE_DAILY_AT", scheduler_cfg.get("daily_at", "12:00")))
     hours = _env_int("SCHEDULE_HOURS", int(scheduler_cfg.get("hours", config.get("window_hours", 24))))
     push_telegram = _env_bool("SCHEDULE_PUSH_TELEGRAM", bool(scheduler_cfg.get("push_telegram", True)))
     run_on_start = _env_bool("SCHEDULE_RUN_ON_START", bool(scheduler_cfg.get("run_on_start", False)))

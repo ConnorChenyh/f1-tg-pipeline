@@ -63,7 +63,7 @@ telegram:
 
 scheduler:
   timezone: Asia/Hong_Kong
-  daily_at: "09:00"
+  daily_at: "12:00"
   hours: 24
   push_telegram: true
   run_on_start: false
