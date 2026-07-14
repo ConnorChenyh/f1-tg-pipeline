@@ -2,6 +2,12 @@
 
 Local pipeline that collects F1 discussions from Reddit and RSS (Twitter optional), clusters hot topics with DeepSeek, generates image-based Chinese digests, and can push them to Telegram.
 
+## Documentation
+
+- `AGENTS.md` - agent navigation, collaboration rules, and common validation commands
+- `docs/architecture.md` - pipeline architecture, module responsibilities, data flow, and quality gates
+- `docs/operations.md` - Docker/VPS deployment, manual triggers, log inspection, and troubleshooting
+
 ## Prerequisites
 
 - Python 3.10+
@@ -71,6 +77,7 @@ placeholder text.
 Each run creates `output/<timestamp>/` with:
 
 - `raw_posts.json` - normalized scored posts (24h window)
+- `shortlisted_posts.json` - deterministic candidate shortlist sent to topic extraction
 - `topics.json` - hot topics used in the digest
 - `drafts/digest/` - single roundup: `draft.md`, `draft.json`, `images/*.png`
 - `preview.html` - local review page with copy button
@@ -116,6 +123,11 @@ starts, then it will continue with the daily schedule.
 - DeepSeek is text-only; images are generated with Pillow text-card templates.
 - If Reddit or a single RSS feed fails, other sources continue.
 - Twitter collector is optional and skipped when credentials are missing.
+- Candidate governance runs before DeepSeek: source tiers, article bonus,
+  cross-source bonus, social-only caps, time decay, and batch dedup.
+- Published topic memory is stored in `output/topic_history.json` and
+  `output/story_memory.sqlite3`; repeated manual runs may backfill recent
+  evidence-backed topics to satisfy the minimum digest size.
 - Drafts are grounded on collected evidence with timestamps. A fact-check pass
   runs by default (`deepseek.fact_check_enabled`), followed by a separate final
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,
