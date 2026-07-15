@@ -37,6 +37,10 @@ def similarity_threshold(config: dict[str, Any]) -> float:
     return float(_history_config(config).get("similarity_threshold", 0.72))
 
 
+def backfill_max_age_hours(config: dict[str, Any]) -> float:
+    return float(_history_config(config).get("backfill_max_age_hours", 6))
+
+
 def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -137,16 +141,24 @@ def filter_recent_topics(
     skipped: list[dict[str, Any]] = []
     for topic in topics:
         reason = None
+        matched_entry = None
         for entry in entries:
             reason = _match_reason(topic, entry, threshold)
             if reason:
+                matched_entry = entry
                 break
         if reason:
+            duplicate_published_at = _parse_datetime(str((matched_entry or {}).get("published_at") or ""))
+            duplicate_age_hours = None
+            if duplicate_published_at:
+                duplicate_age_hours = max((now - duplicate_published_at).total_seconds() / 3600, 0.0)
             skipped.append(
                 {
                     "id": topic.get("id"),
                     "title_zh": topic.get("title_zh"),
                     "reason": reason,
+                    "duplicate_published_at": duplicate_published_at.isoformat() if duplicate_published_at else None,
+                    "duplicate_age_hours": round(duplicate_age_hours, 2) if duplicate_age_hours is not None else None,
                 }
             )
         else:

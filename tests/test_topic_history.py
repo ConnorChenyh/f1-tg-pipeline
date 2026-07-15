@@ -33,6 +33,8 @@ class TopicHistoryTests(unittest.TestCase):
         self.assertEqual(fresh, [])
         self.assertEqual(skipped[0]["id"], "topic_02")
         self.assertTrue(skipped[0]["reason"].startswith("shared_url:"))
+        self.assertEqual(skipped[0]["duplicate_age_hours"], 24.0)
+        self.assertIsNotNone(skipped[0]["duplicate_published_at"])
 
     def test_old_topic_outside_window_is_allowed(self) -> None:
         now = datetime(2026, 7, 14, 4, 0, tzinfo=timezone.utc)

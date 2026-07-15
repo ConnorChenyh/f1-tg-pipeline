@@ -116,15 +116,18 @@ def backfill_recent_topics(
     skipped_topics: list[dict],
     original_topics: list[dict],
     min_items: int,
+    max_age_hours: float = 6.0,
 ) -> tuple[list[dict], list[dict]]:
     if len(fresh_topics) >= min_items:
         return fresh_topics, skipped_topics
 
-    reusable_reasons = ("shared_url:", "text_similarity:", "story_db:")
+    reusable_reasons = ("shared_url:", "text_similarity:")
     reusable_ids = {
         item.get("id")
         for item in skipped_topics
         if str(item.get("reason") or "").startswith(reusable_reasons)
+        and item.get("duplicate_age_hours") is not None
+        and float(item.get("duplicate_age_hours") or 0.0) <= max_age_hours
     }
     if not reusable_ids:
         return fresh_topics, skipped_topics
@@ -292,6 +295,7 @@ def main() -> int:
             skipped_recent_topics,
             history_candidate_topics,
             digest_min_items,
+            max_age_hours=float(config.get("topic_history", {}).get("backfill_max_age_hours", 6)),
         )
 
     save_json(output_dir / "topics.json", topics)

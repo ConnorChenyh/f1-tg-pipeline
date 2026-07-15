@@ -15,8 +15,18 @@ class RunBackfillTests(unittest.TestCase):
             {"id": "topic_04", "title_zh": "新话题"},
         ]
         skipped = [
-            {"id": "topic_01", "title_zh": "旧话题一", "reason": "shared_url:https://example.com/1"},
-            {"id": "topic_02", "title_zh": "旧话题二", "reason": "story_db:url:https://example.com/2"},
+            {
+                "id": "topic_01",
+                "title_zh": "旧话题一",
+                "reason": "shared_url:https://example.com/1",
+                "duplicate_age_hours": 1.0,
+            },
+            {
+                "id": "topic_02",
+                "title_zh": "旧话题二",
+                "reason": "text_similarity:0.91",
+                "duplicate_age_hours": 2.0,
+            },
             {"id": "topic_03", "title_zh": "低证据话题", "reason": "social_only_without_article_content"},
         ]
 
@@ -37,6 +47,22 @@ class RunBackfillTests(unittest.TestCase):
         skipped = [{"id": "topic_02", "reason": "social_only_without_article_content"}]
 
         topics, remaining = backfill_recent_topics(fresh, skipped, original, 2)
+
+        self.assertEqual(topics, fresh)
+        self.assertEqual(remaining, skipped)
+
+    def test_does_not_backfill_old_recent_duplicates(self) -> None:
+        fresh = [{"id": "topic_01"}]
+        original = [{"id": "topic_02"}]
+        skipped = [
+            {
+                "id": "topic_02",
+                "reason": "shared_url:https://example.com/old",
+                "duplicate_age_hours": 20.0,
+            }
+        ]
+
+        topics, remaining = backfill_recent_topics(fresh, skipped, original, 2, max_age_hours=6)
 
         self.assertEqual(topics, fresh)
         self.assertEqual(remaining, skipped)

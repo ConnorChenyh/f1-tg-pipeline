@@ -60,6 +60,8 @@ Rules:
 - Use each evidence.content as the source of truth; model_summary is secondary context only
 - When content_basis is article_content, summarize/translate from article_content, not the title or RSS text
 - When source_note says social post only or RSS/title snippet only, keep claims explicitly anchored (视频显示/帖文称/报道标题称) and do not add detail
+- Never treat evidence.created_at, RSS publication time, or article publication time as the event time. Only write “今天/周二/昨日/本周” for the event itself when evidence.content explicitly says the event happened at that time
+- If an article is a later recap of an event whose event date is unclear or outside the run window, write “报道回顾/报道发布/视频显示” instead of implying it happened in the last 24 hours
 - Preserve event sequence accurately; do not merge separate actions into one sentence
 - Never write that someone drove a car onto a balcony unless the evidence literally says that
 - Translate champion/title/win/podium carefully; avoid “新科冠军” unless the evidence explicitly supports that exact meaning
