@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from generator.evidence_pack import normalize_source_url
+from analyzer.topic_signature import topic_signature, topic_signature_cooldown_days
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +107,20 @@ def _topic_urls(topic: dict[str, Any]) -> set[str]:
 def _match_reason(
     topic: dict[str, Any],
     entry: dict[str, Any],
+    config: dict[str, Any],
+    now: datetime,
     threshold: float,
 ) -> str | None:
+    current_signature = topic_signature(topic, config)
+    entry_signature = str(entry.get("topic_signature") or "") or topic_signature(entry, config)
+    if current_signature and entry_signature and current_signature == entry_signature:
+        cooldown_days = topic_signature_cooldown_days(current_signature, config)
+        if cooldown_days is None:
+            return f"topic_signature:{current_signature}"
+        published_at = _parse_datetime(str(entry.get("published_at") or ""))
+        if published_at and now - published_at <= timedelta(days=cooldown_days):
+            return f"topic_signature:{current_signature}"
+
     shared_urls = _topic_urls(topic) & set(str(url) for url in entry.get("evidence_urls", []) or [])
     if shared_urls:
         return f"shared_url:{next(iter(shared_urls))}"
@@ -143,7 +156,7 @@ def filter_recent_topics(
         reason = None
         matched_entry = None
         for entry in entries:
-            reason = _match_reason(topic, entry, threshold)
+            reason = _match_reason(topic, entry, config, now, threshold)
             if reason:
                 matched_entry = entry
                 break
@@ -187,6 +200,7 @@ def append_topic_history(
                 "id": topic.get("id"),
                 "title_zh": topic.get("title_zh"),
                 "summary": topic.get("summary"),
+                "topic_signature": topic_signature(topic, config),
                 "evidence_urls": sorted(_topic_urls(topic)),
             }
         )

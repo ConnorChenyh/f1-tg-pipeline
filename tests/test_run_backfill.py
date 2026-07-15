@@ -67,6 +67,22 @@ class RunBackfillTests(unittest.TestCase):
         self.assertEqual(topics, fresh)
         self.assertEqual(remaining, skipped)
 
+    def test_does_not_backfill_topic_signature_duplicates(self) -> None:
+        fresh = [{"id": "topic_01"}]
+        original = [{"id": "topic_02"}]
+        skipped = [
+            {
+                "id": "topic_02",
+                "reason": "topic_signature:verstappen_future",
+                "duplicate_age_hours": 1.0,
+            }
+        ]
+
+        topics, remaining = backfill_recent_topics(fresh, skipped, original, 2)
+
+        self.assertEqual(topics, fresh)
+        self.assertEqual(remaining, skipped)
+
 
 if __name__ == "__main__":
     unittest.main()

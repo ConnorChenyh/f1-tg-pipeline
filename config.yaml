@@ -17,6 +17,25 @@ topic_history:
   backfill_max_age_hours: 6
   path: output/topic_history.json
 
+topic_cooldowns:
+  enabled: true
+  default_cooldown_days: 7
+  rules:
+    - key: verstappen_future
+      cooldown_days: 7
+      keyword_groups:
+        - ["verstappen", "维斯塔潘", "max"]
+        - ["future", "exit clause", "mercedes", "red bull", "transfer", "move", "stay loyal", "未来", "去向", "转会", "留队", "红牛", "梅赛德斯", "解约条款"]
+    - key: goodwood_festival
+      cooldown_days: 7
+      keyword_groups:
+        - ["goodwood", "festival of speed", "fos", "古德伍德", "速度节"]
+    - key: belgian_gp_preview
+      cooldown_days: 4
+      keyword_groups:
+        - ["belgian grand prix", "spa", "spa-francorchamps", "比利时大奖赛", "斯帕"]
+        - ["preview", "schedule", "poster", "race week", "how to watch", "前瞻", "赛程", "海报", "预热"]
+
 story_db:
   enabled: true
   path: output/story_memory.sqlite3
