@@ -21,7 +21,7 @@ evidence enrichment
   collected posts + fetched article bodies
     ↓
 evidence/history gates
-  social-only filtering, SQLite story DB, JSON topic history, minimum-item backfill
+  social-only filtering, topic cooldowns, SQLite story DB, JSON topic history, minimum-item backfill
     ↓
 DeepSeek digest writer
     ↓
@@ -105,15 +105,24 @@ The project uses two memory mechanisms:
 - `output/story_memory.sqlite3`: SQLite record of shortlisted candidates and
   published topics.
 
+`analyzer/topic_signature.py` adds a topic-level cooldown layer configured by
+`topic_cooldowns` in `config.yaml`. This catches repeated themes even when the
+source URL changes, for example repeated Verstappen future/transfer coverage,
+Goodwood Festival of Speed recaps, or Belgian GP preview posts. Existing history
+entries without a stored signature are still matched by recomputing the signature
+from their title, summary, and evidence URLs.
+
 `analyzer/evidence_gate.py` filters low-evidence social-only topics when enough
 article-backed topics are available. `analyzer/story_db.py` records candidates
 and published topics, and can skip recently published fingerprints. The older
-`analyzer/topic_history.py` still provides URL/text similarity filtering.
+`analyzer/topic_history.py` provides topic-signature, URL, and text-similarity
+filtering.
 
 Manual reruns can naturally collide with recent history. To avoid publishing only
 one item, `run.py` has minimum-item backfill: if fresh topics are below
-`digest.min_items`, recent duplicates with solid evidence can be reused. Topics
-skipped for low evidence are not backfilled.
+`digest.min_items`, very recent URL/text duplicates with solid evidence can be
+reused. Topics skipped for low evidence or topic-level cooldowns are not
+backfilled.
 
 ## Writing And Review
 
@@ -152,6 +161,7 @@ Most behavior lives in `config.yaml`:
 
 - `digest`: item count and per-item character ranges
 - `topic_history`: recent topic dedupe window
+- `topic_cooldowns`: theme-level cooldown signatures for repeated broad stories
 - `story_db`: SQLite path and retention
 - `shortlist`: candidate scoring and social caps
 - `evidence_gate`: low-evidence filtering thresholds

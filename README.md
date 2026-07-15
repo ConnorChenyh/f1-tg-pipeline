@@ -128,6 +128,9 @@ starts, then it will continue with the daily schedule.
 - Published topic memory is stored in `output/topic_history.json` and
   `output/story_memory.sqlite3`; repeated manual runs may backfill recent
   evidence-backed topics to satisfy the minimum digest size.
+- `topic_cooldowns` in `config.yaml` suppresses repeated themes even when new
+  URLs appear, such as repeated Verstappen future/transfer, Goodwood Festival of
+  Speed, or Belgian GP preview stories.
 - Drafts are grounded on collected evidence with timestamps. A fact-check pass
   runs by default (`deepseek.fact_check_enabled`), followed by a separate final
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,

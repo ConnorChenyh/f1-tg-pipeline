@@ -25,7 +25,7 @@ evidence-grounded, and compatible with the existing Docker/VPS deployment.
 - Prefer deterministic gates before LLM calls: source tiering, article evidence, topic history, and story DB state.
 - Treat article body text as stronger evidence than RSS snippets, Reddit titles, or model summaries.
 - For uncertain F1 technical names, keep the English term instead of inventing a Chinese translation.
-- If repeated manual runs are requested, remember that topic history may suppress recently published stories; minimum-item backfill exists to avoid empty digests, but low-evidence social-only topics should remain filtered.
+- If repeated manual runs are requested, remember that topic history and topic-level cooldowns may suppress recently published stories; minimum-item backfill exists only for very recent URL/text duplicates and must not reintroduce low-evidence or cooled-down themes.
 
 ## Common Commands
 

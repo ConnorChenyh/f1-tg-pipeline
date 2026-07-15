@@ -162,9 +162,14 @@ PY
 Check `drafts/digest/meta.json`:
 
 - `social_only_without_article_content` means the evidence gate filtered thin social-only topics.
+- `topic_signature:<key>` means `topic_cooldowns` filtered a repeated broad theme
+  even if the URL changed, such as `verstappen_future`, `goodwood_festival`, or
+  `belgian_gp_preview`.
 - `shared_url:` or `text_similarity:` means JSON topic history filtered a recent duplicate.
 - `story_db:` means SQLite story memory filtered a recent duplicate.
-- `backfilled_recent_duplicate_for_min_items` means a recent duplicate was reused to satisfy `digest.min_items`.
+- `backfilled_recent_duplicate_for_min_items` means a very recent URL/text
+  duplicate was reused to satisfy `digest.min_items`; topic-signature duplicates
+  are not backfilled.
 
 If the output is still too small, inspect `shortlisted_posts.json` and consider:
 
@@ -172,6 +177,8 @@ If the output is still too small, inspect `shortlisted_posts.json` and consider:
 - lowering `evidence_gate.min_article_backed_topics`
 - increasing `shortlist.max_social_only_posts`
 - shortening `topic_history.dedupe_days`
+- adjusting or removing a specific `topic_cooldowns.rules` entry if a theme
+  should be allowed again sooner
 
 Do not disable evidence gating unless the goal is explicitly to include rumor or
 social-only content.
