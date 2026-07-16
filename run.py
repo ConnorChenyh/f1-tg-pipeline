@@ -15,6 +15,7 @@ from analyzer.article_fetcher import enrich_evidence_with_articles
 from analyzer.context import RunContext
 from analyzer.evidence import enrich_topics_with_evidence
 from analyzer.evidence_gate import filter_topics_by_evidence_quality
+from analyzer.fallback_topics import build_fallback_article_topics
 from analyzer.normalize import normalize_posts
 from analyzer.score import score_posts
 from analyzer.season_context import build_season_context_prompt
@@ -167,6 +168,56 @@ def backfill_recent_topics(
     return fresh_topics + backfilled, remaining_skipped
 
 
+def fill_with_article_fallbacks(
+    topics: list[dict],
+    skipped_topics: list[dict],
+    shortlisted: list,
+    config: dict,
+    root: Path,
+    now: datetime,
+    min_items: int,
+) -> tuple[list[dict], list[dict]]:
+    if len(topics) >= min_items:
+        return topics, skipped_topics
+
+    fallback_candidates = build_fallback_article_topics(
+        shortlisted,
+        existing_topics=topics,
+        needed=min_items - len(topics),
+    )
+    if not fallback_candidates:
+        return topics, skipped_topics
+
+    fallback_topics = enrich_topics_with_evidence(fallback_candidates, shortlisted)
+    fallback_topics = enrich_evidence_with_articles(fallback_topics, config)
+    fallback_topics, skipped_by_evidence = filter_topics_by_evidence_quality(fallback_topics, config)
+    if skipped_by_evidence:
+        skipped_topics.extend(skipped_by_evidence)
+    fallback_topics, skipped_by_story_db = filter_topics_seen_in_story_db(
+        fallback_topics,
+        root,
+        config,
+        now,
+    )
+    if skipped_by_story_db:
+        skipped_topics.extend(skipped_by_story_db)
+    fallback_topics, skipped_by_topic_history = filter_recent_topics(
+        fallback_topics,
+        root,
+        config,
+        now,
+    )
+    if skipped_by_topic_history:
+        skipped_topics.extend(skipped_by_topic_history)
+
+    if fallback_topics:
+        for topic in fallback_topics:
+            notes = list(topic.get("evidence_quality_notes", []) or [])
+            notes.append("fallback article topic added to satisfy minimum digest item count")
+            topic["evidence_quality_notes"] = notes
+    return topics + fallback_topics, skipped_topics
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="F1 hot topics to Xiaohongshu draft pipeline")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Path to config.yaml")
@@ -296,6 +347,15 @@ def main() -> int:
             history_candidate_topics,
             digest_min_items,
             max_age_hours=float(config.get("topic_history", {}).get("backfill_max_age_hours", 6)),
+        )
+        topics, skipped_recent_topics = fill_with_article_fallbacks(
+            topics,
+            skipped_recent_topics,
+            shortlisted,
+            config,
+            ROOT,
+            run_context.generated_at,
+            digest_min_items,
         )
 
     save_json(output_dir / "topics.json", topics)

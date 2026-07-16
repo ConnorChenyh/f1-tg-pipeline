@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,7 @@ def init_story_db(root: Path, config: dict[str, Any]) -> None:
     if not story_db_enabled(config):
         return
     path = story_db_path(root, config)
-    with _connect(path) as conn:
+    with closing(_connect(path)) as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS candidates (
@@ -73,6 +74,7 @@ def init_story_db(root: Path, config: dict[str, Any]) -> None:
             CREATE INDEX IF NOT EXISTS idx_published_fingerprint ON published_topics(fingerprint);
             """
         )
+        conn.commit()
     logger.info("Story DB ready: %s", path)
 
 
@@ -113,7 +115,7 @@ def record_candidates(
             )
         )
 
-    with _connect(path) as conn:
+    with closing(_connect(path)) as conn:
         conn.executemany(
             """
             INSERT INTO candidates (
@@ -123,6 +125,7 @@ def record_candidates(
             """,
             rows,
         )
+        conn.commit()
     logger.info("Story DB recorded %d candidates", len(rows))
 
 
@@ -151,7 +154,7 @@ def record_published_topics(
             )
         )
 
-    with _connect(path) as conn:
+    with closing(_connect(path)) as conn:
         conn.executemany(
             """
             INSERT INTO published_topics (
@@ -161,6 +164,7 @@ def record_published_topics(
             """,
             rows,
         )
+        conn.commit()
     logger.info("Story DB recorded %d published topics", len(rows))
 
 
@@ -171,9 +175,10 @@ def prune_story_db(root: Path, config: dict[str, Any], now: datetime) -> None:
     retention_days = int(_db_config(config).get("retention_days", 30))
     cutoff = (now - timedelta(days=retention_days)).isoformat()
     path = story_db_path(root, config)
-    with _connect(path) as conn:
+    with closing(_connect(path)) as conn:
         conn.execute("DELETE FROM candidates WHERE collected_at < ?", (cutoff,))
         conn.execute("DELETE FROM published_topics WHERE published_at < ?", (cutoff,))
+        conn.commit()
 
 
 def recent_published_fingerprints(root: Path, config: dict[str, Any], now: datetime) -> set[str]:
@@ -186,7 +191,7 @@ def recent_published_fingerprints(root: Path, config: dict[str, Any], now: datet
     if not path.exists():
         return set()
 
-    with _connect(path) as conn:
+    with closing(_connect(path)) as conn:
         rows = conn.execute(
             "SELECT fingerprint FROM published_topics WHERE published_at >= ?",
             (cutoff,),

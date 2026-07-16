@@ -131,6 +131,9 @@ starts, then it will continue with the daily schedule.
 - `topic_cooldowns` in `config.yaml` suppresses repeated themes even when new
   URLs appear, such as repeated Verstappen future/transfer, Goodwood Festival of
   Speed, or Belgian GP preview stories.
+- If filtering leaves too few topics, the pipeline can add fallback topics from
+  high-quality article-backed shortlist items, while still applying evidence and
+  cooldown filters.
 - Drafts are grounded on collected evidence with timestamps. A fact-check pass
   runs by default (`deepseek.fact_check_enabled`), followed by a separate final
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,

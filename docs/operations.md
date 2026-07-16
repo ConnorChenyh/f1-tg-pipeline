@@ -180,6 +180,13 @@ If the output is still too small, inspect `shortlisted_posts.json` and consider:
 - adjusting or removing a specific `topic_cooldowns.rules` entry if a theme
   should be allowed again sooner
 
+The pipeline also has article-backed fallback fill: when filtered topics are
+below `digest.min_items`, unused article URLs from `shortlisted_posts.json` are
+converted into fallback topics and then checked by the same evidence/history
+filters. If fallback still does not fill the digest, the remaining candidates are
+probably social-only, cooled down by `topic_cooldowns`, or already present in
+topic history.
+
 Do not disable evidence gating unless the goal is explicitly to include rumor or
 social-only content.
 

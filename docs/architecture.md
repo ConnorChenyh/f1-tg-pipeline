@@ -23,6 +23,9 @@ evidence enrichment
 evidence/history gates
   social-only filtering, topic cooldowns, SQLite story DB, JSON topic history, minimum-item backfill
     ↓
+article fallback fill
+  unused article-backed shortlist items, then the same evidence/history gates
+    ↓
 DeepSeek digest writer
     ↓
 DeepSeek fact-check
@@ -123,6 +126,11 @@ one item, `run.py` has minimum-item backfill: if fresh topics are below
 `digest.min_items`, very recent URL/text duplicates with solid evidence can be
 reused. Topics skipped for low evidence or topic-level cooldowns are not
 backfilled.
+
+If the digest is still below `digest.min_items`, `analyzer/fallback_topics.py`
+can add unused article-backed posts from the deterministic shortlist as fallback
+topics. These fallback topics still go through article fetching, evidence gate,
+story DB, and topic history/cooldown checks before they can be written.
 
 ## Writing And Review
 
