@@ -20,6 +20,7 @@ from analyzer.normalize import normalize_posts
 from analyzer.score import score_posts
 from analyzer.season_context import build_season_context_prompt
 from analyzer.shortlist import shortlist_posts
+from analyzer.standings import refresh_team_baseline_from_standings
 from analyzer.story_db import (
     filter_topics_seen_in_story_db,
     init_story_db,
@@ -270,6 +271,7 @@ def main() -> int:
     digest_item_target_chars = int(digest_cfg.get("item_target_chars", 300))
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
     run_context = RunContext.now(window_hours)
+    refresh_team_baseline_from_standings(config)
     run_context = run_context.with_season_context(build_season_context_prompt(config, run_context.generated_at))
     run_id = run_context.generated_at.strftime("%Y-%m-%d_%H%M%S")
     init_story_db(ROOT, config)

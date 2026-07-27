@@ -41,6 +41,47 @@ class SeasonContextTests(unittest.TestCase):
         self.assertIn("next race is R10 Belgian Grand Prix", prompt)
         self.assertIn("Bahrain Grand Prix", prompt)
 
+    def test_calendar_context_identifies_active_break(self) -> None:
+        config = {
+            "season_context": {
+                "enabled": True,
+                "breaks": [
+                    {
+                        "name": "summer break before the Dutch Grand Prix",
+                        "start": "2026-07-27",
+                        "end": "2026-08-20",
+                        "guidance": "Do not write as if there is an active race week.",
+                    }
+                ],
+                "races": [
+                    {
+                        "round": 11,
+                        "name": "Hungarian Grand Prix",
+                        "circuit": "Hungaroring",
+                        "start": "2026-07-24",
+                        "end": "2026-07-26",
+                    },
+                    {
+                        "round": 12,
+                        "name": "Dutch Grand Prix",
+                        "circuit": "Zandvoort",
+                        "start": "2026-08-21",
+                        "end": "2026-08-23",
+                    },
+                ],
+            }
+        }
+
+        prompt = build_season_context_prompt(
+            config,
+            datetime(2026, 7, 27, 4, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIn("1 Grands Prix have been completed", prompt)
+        self.assertIn("summer break before the Dutch Grand Prix", prompt)
+        self.assertIn("1 days since the last race and 25 days until the next race", prompt)
+        self.assertIn("Do not write as if there is an active race week.", prompt)
+
     def test_calendar_context_includes_team_baseline(self) -> None:
         config = {
             "season_context": {
@@ -53,6 +94,10 @@ class SeasonContextTests(unittest.TestCase):
                             "chassis": "SF-26",
                             "constructors_position": 2,
                             "constructors_points": 255,
+                            "drivers": [
+                                {"name": "Lewis Hamilton", "standing": 2, "points": 169},
+                                {"name": "Charles Leclerc", "standing": 4, "points": 138},
+                            ],
                             "technical": "Uses Flick Tail Mode.",
                         }
                     ],
@@ -76,6 +121,7 @@ class SeasonContextTests(unittest.TestCase):
 
         self.assertIn("Current big-four car and performance baseline (after R9)", prompt)
         self.assertIn("Ferrari: chassis SF-26; P2 in Constructors with 255 points", prompt)
+        self.assertIn("drivers Lewis Hamilton P2 with 169 points, Charles Leclerc P4 with 138 points", prompt)
         self.assertIn("Uses Flick Tail Mode.", prompt)
         self.assertNotIn("Mode..", prompt)
 

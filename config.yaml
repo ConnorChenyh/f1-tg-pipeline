@@ -92,7 +92,9 @@ source_tiers:
 season_context:
   enabled: true
   notes:
-    - "Use the current 2026 calendar to judge timing: by mid-July the season is not new; the opening flyaways and early European rounds have already happened."
+    - "Use the current 2026 calendar to judge timing: as of 2026-07-27, 11 Grands Prix have been completed through the Hungarian Grand Prix. The season is in summer break until the Dutch Grand Prix at Zandvoort on 2026-08-21 to 2026-08-23."
+    - "From 2026-07-27 through 2026-08-20, do not write as if there is an active race week. Treat news in this window as summer-break review, technical/contract analysis, or forward-looking Dutch Grand Prix preparation unless the evidence says otherwise."
+    - "The Belgian Grand Prix and Hungarian Grand Prix have already happened. Do not describe either as upcoming after 2026-07-27."
     - "Madrid/Madring is scheduled as the Spanish Grand Prix venue in September, so a July social video about Madring is not evidence that SF-26 has just made its race debut there."
     - "Bahrain and Saudi Arabia were April rounds on the original 2026 calendar, but F1/FIA confirmed they would not take place due to the ongoing Middle East situation, safety and wellbeing concerns, and regional instability linked to the Iran war / US-Israel-Iran conflict. Alternatives were considered, but no substitutions were made in April, creating the long gap from Japan to Miami."
     - "Treat calendar-change claims such as Bahrain returning later in 2026 or double races at Baku/Singapore as speculative unless current evidence explicitly reports an official F1/FIA calendar change."
@@ -101,35 +103,73 @@ season_context:
       reason: "originally scheduled for April 10-12 as round 4; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
     - name: Saudi Arabian Grand Prix
       reason: "originally scheduled for April 17-19 as round 5; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
+  breaks:
+    - name: summer break before the Dutch Grand Prix
+      start: "2026-07-27"
+      end: "2026-08-20"
+      guidance: "Do not write as if there is an active race week; frame news as summer-break review, technical/contract analysis, or forward-looking Dutch Grand Prix preparation unless article evidence says otherwise."
+  standings_refresh:
+    enabled: true
+    driver_url: "https://www.formula1.com/en/results/2026/drivers"
+    timeout_sec: 15
   team_baseline:
-    as_of: "after R9 British Grand Prix, before R10 Belgian Grand Prix, 2026"
+    as_of: "after R11 Hungarian Grand Prix, before R12 Dutch Grand Prix, 2026 summer break"
+    source: "configured snapshot, refresh from Formula1 driver standings on each run when available"
     teams:
       - name: Mercedes
         chassis: "F1 W17"
         constructors_position: 1
-        constructors_points: 333
-        performance: "clear championship benchmark so far: Antonelli and Russell lead the drivers' standings, and Mercedes has won seven of the first nine Grands Prix. The car is strong over race distance and especially credible on energy deployment and overall efficiency under the new rules."
+        constructors_points: 379
+        drivers:
+          - name: Kimi Antonelli
+            standing: 1
+            points: 219
+          - name: George Russell
+            standing: 3
+            points: 160
+        performance: "clear championship benchmark through 11 races: Antonelli leads the Drivers' Championship, Russell is third, and Mercedes has won eight of the first eleven Grands Prix. The car remains strong over race distance and especially credible on energy deployment and overall efficiency under the new rules."
         technical: "Mercedes uses the Mercedes-AMG F1 M17 power unit. Public technical reporting has highlighted front/floor flow management and refinement rather than a visually radical rear-wing concept; treat it as the reference package for consistency and points conversion."
-        caveat: "Do not call Mercedes unbeatable: Ferrari has won the two most recent non-Mercedes victories and is closing the gap."
+        caveat: "Do not call Mercedes unbeatable: Ferrari and McLaren have both won recent races, but Mercedes still leads both championships entering summer break."
       - name: Ferrari
         chassis: "SF-26"
         constructors_position: 2
-        constructors_points: 255
-        performance: "second in the Constructors' Championship and the main Mercedes challenger. Hamilton won Barcelona-Catalunya and Leclerc won Silverstone, so the SF-26 is race-winning, especially as Ferrari updates have improved the car after the opening phase."
+        constructors_points: 307
+        drivers:
+          - name: Lewis Hamilton
+            standing: 2
+            points: 169
+          - name: Charles Leclerc
+            standing: 4
+            points: 138
+        performance: "second in the Constructors' Championship and still Mercedes' closest pursuer. Hamilton is second in the Drivers' Championship and Leclerc is fourth; the SF-26 has race wins at Barcelona-Catalunya and Silverstone, but Ferrari still trails Mercedes by 72 points entering summer break."
         technical: "Ferrari's SF-26 is associated with aggressive aerodynamic interpretation: the flip-flop/upside-down rotating rear wing, Flick Tail Mode near the exhaust, extensive floor/diffuser updates, and a switch to pushrod front and rear suspension. Ferrari's rotating rear wing flips fully upside down to create a larger air gap and reduce drag on straights."
         caveat: "When discussing FTM, use the English term Flick Tail Mode if unsure; do not invent a Chinese technical name."
       - name: McLaren
         chassis: "MCL40"
         constructors_position: 3
-        constructors_points: 179
-        performance: "third in the Constructors' Championship. The reigning champion team remains inside the big four but has not matched Mercedes or Ferrari over the first nine races; Norris and Piastri sit fifth and sixth in the drivers' standings."
+        constructors_points: 220
+        drivers:
+          - name: Lando Norris
+            standing: 5
+            points: 128
+          - name: Oscar Piastri
+            standing: 7
+            points: 92
+        performance: "third in the Constructors' Championship. Norris won the Hungarian Grand Prix for McLaren's first 2026 victory, but the team remains behind Mercedes and Ferrari on points; Norris is fifth and Piastri is seventh in the Drivers' Championship."
         technical: "McLaren has focused on aerodynamic refinement, including front wing and active-system kinematics changes, plus floor and rear-wheel wake management updates in Miami/Canada. It is less visually radical than Ferrari/Red Bull in rear-wing execution."
         caveat: "Do not describe McLaren as the current title benchmark unless fresh evidence shows a major turnaround."
       - name: Red Bull Racing
         chassis: "RB22"
         constructors_position: 4
-        constructors_points: 128
-        performance: "fourth in the Constructors' Championship after a difficult start to 2026. The RB22 has shown strong energy deployment potential from the new Red Bull Ford power unit, but Red Bull has lagged Mercedes, Ferrari and McLaren overall; Verstappen is seventh and Hadjar eighth in the drivers' standings."
+        constructors_points: 177
+        drivers:
+          - name: Max Verstappen
+            standing: 6
+            points: 109
+          - name: Isack Hadjar
+            standing: 8
+            points: 68
+        performance: "fourth in the Constructors' Championship after a difficult first half of 2026. The RB22 has shown strong energy deployment potential from the Red Bull Ford power unit, but Red Bull still trails Mercedes, Ferrari and McLaren overall; Verstappen is sixth and Hadjar eighth in the Drivers' Championship."
         technical: "Red Bull introduced its own upside-down rotating rear wing in Miami. Compared with Ferrari, the Red Bull version produces a larger slot gap with the upper element rising above the endplates, and technical reporting describes its flap rotation as opposite to Ferrari's system. Red Bull also brought sidepod, floor and rear-wheel wake updates."
         caveat: "Be careful with Red Bull topics: rear-wing reliability has been a story after Austria/Silverstone incidents, so separate confirmed failures from transfer or contract speculation."
   races:
