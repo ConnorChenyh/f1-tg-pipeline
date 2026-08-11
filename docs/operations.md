@@ -248,12 +248,16 @@ pipeline failure.
 
 ## Maintenance
 
-Update `config.yaml` manually when the season context changes:
+Normal race-to-race season context changes are automatic. The configured race
+dates determine break, race-build-up, active-weekend, and completed-race phases;
+live Formula1 standings refresh the points baseline. A separate Telegram message
+reports phase, completed-round, and standings changes.
 
-- completed race count
-- next race
+Update `config.yaml` manually only when the authoritative calendar itself changes:
+
 - cancelled or rescheduled races
-- big-four team performance and car baseline
+- a new season calendar
+- changed team/car identities
 - newly confirmed technical terminology
 
 After config changes:

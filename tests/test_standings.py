@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
 
 from analyzer.standings import (
     _extract_from_text,
@@ -34,6 +35,14 @@ class StandingsTests(unittest.TestCase):
         config = {
             "season_context": {
                 "standings_refresh": {"enabled": True},
+                "races": [
+                    {
+                        "round": 11,
+                        "name": "Hungarian Grand Prix",
+                        "start": "2026-07-24",
+                        "end": "2026-07-26",
+                    }
+                ],
                 "team_baseline": {
                     "teams": [
                         {"name": "Mercedes", "constructors_points": 0},
@@ -61,7 +70,10 @@ class StandingsTests(unittest.TestCase):
                 8 Isack Hadjar Red Bull Racing 68
                 """
             )
-            refreshed = refresh_team_baseline_from_standings(config)
+            refreshed = refresh_team_baseline_from_standings(
+                config,
+                datetime(2026, 8, 11, 4, 0, tzinfo=timezone.utc),
+            )
         finally:
             standings_module.fetch_driver_standings = original
 
@@ -75,6 +87,7 @@ class StandingsTests(unittest.TestCase):
         self.assertEqual(177, by_name["Red Bull Racing"]["constructors_points"])
         self.assertEqual(4, by_name["Red Bull Racing"]["constructors_position"])
         self.assertEqual("live Formula1 driver standings", config["season_context"]["team_baseline"]["source"])
+        self.assertIn("after R11 Hungarian Grand Prix", config["season_context"]["team_baseline"]["as_of"])
 
 
 if __name__ == "__main__":

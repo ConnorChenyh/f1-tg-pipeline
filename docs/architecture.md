@@ -196,3 +196,9 @@ Each run writes `output/<timestamp>/`:
 
 Persistent memory files live under `output/` as well, because Docker mounts that
 directory as a volume.
+
+`output/season_context_state.json` records the last successful calendar phase
+and live standings snapshot. `run.py` compares it with the current calendar on
+each successful run. Meaningful changes are sent as a separate Telegram message;
+the state advances only after that notification succeeds, so transient Telegram
+failures retry on the next run.

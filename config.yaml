@@ -91,10 +91,10 @@ source_tiers:
 
 season_context:
   enabled: true
+  monitor:
+    enabled: true
+    state_path: output/season_context_state.json
   notes:
-    - "Use the current 2026 calendar to judge timing: as of 2026-07-27, 11 Grands Prix have been completed through the Hungarian Grand Prix. The season is in summer break until the Dutch Grand Prix at Zandvoort on 2026-08-21 to 2026-08-23."
-    - "From 2026-07-27 through 2026-08-20, do not write as if there is an active race week. Treat news in this window as summer-break review, technical/contract analysis, or forward-looking Dutch Grand Prix preparation unless the evidence says otherwise."
-    - "The Belgian Grand Prix and Hungarian Grand Prix have already happened. Do not describe either as upcoming after 2026-07-27."
     - "Madrid/Madring is scheduled as the Spanish Grand Prix venue in September, so a July social video about Madring is not evidence that SF-26 has just made its race debut there."
     - "Bahrain and Saudi Arabia were April rounds on the original 2026 calendar, but F1/FIA confirmed they would not take place due to the ongoing Middle East situation, safety and wellbeing concerns, and regional instability linked to the Iran war / US-Israel-Iran conflict. Alternatives were considered, but no substitutions were made in April, creating the long gap from Japan to Miami."
     - "Treat calendar-change claims such as Bahrain returning later in 2026 or double races at Baku/Singapore as speculative unless current evidence explicitly reports an official F1/FIA calendar change."
@@ -114,6 +114,7 @@ season_context:
     timeout_sec: 15
   team_baseline:
     as_of: "after R11 Hungarian Grand Prix, before R12 Dutch Grand Prix, 2026 summer break"
+    qualitative_as_of_round: 11
     source: "configured snapshot, refresh from Formula1 driver standings on each run when available"
     teams:
       - name: Mercedes

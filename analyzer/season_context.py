@@ -139,6 +139,9 @@ def build_season_context_prompt(config: dict[str, Any], now: datetime) -> str:
     team_baseline = season_cfg.get("team_baseline", {}) or {}
     team_items = team_baseline.get("teams", []) or []
     if team_items:
+        latest_completed_round = int(completed[-1].get("round", 0)) if completed else 0
+        qualitative_as_of_round = int(team_baseline.get("qualitative_as_of_round", latest_completed_round))
+        include_qualitative_performance = latest_completed_round <= qualitative_as_of_round
         as_of = team_baseline.get("as_of")
         header = "- Current big-four car and performance baseline"
         if as_of:
@@ -181,7 +184,10 @@ def build_season_context_prompt(config: dict[str, Any], now: datetime) -> str:
                     driver_parts.append(str(driver_name))
             if driver_parts:
                 detail_parts.append("drivers " + ", ".join(driver_parts))
-            for key in ("performance", "technical", "caveat"):
+            contextual_keys = ["technical", "caveat"]
+            if include_qualitative_performance:
+                contextual_keys.insert(0, "performance")
+            for key in contextual_keys:
                 value = team.get(key)
                 if value:
                     detail_parts.append(_clean_sentence(value))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -110,7 +111,10 @@ def fetch_driver_standings(url: str = DRIVER_PAGE_URL, timeout_sec: int = 15) ->
     return standings
 
 
-def refresh_team_baseline_from_standings(config: dict[str, Any]) -> bool:
+def refresh_team_baseline_from_standings(
+    config: dict[str, Any],
+    now: datetime | None = None,
+) -> bool:
     season_cfg = config.get("season_context", {}) or {}
     standings_cfg = season_cfg.get("standings_refresh", {}) or {}
     if not standings_cfg.get("enabled", True):
@@ -152,8 +156,23 @@ def refresh_team_baseline_from_standings(config: dict[str, Any]) -> bool:
     )
     for index, team in enumerate(sorted_teams, start=1):
         team["constructors_position"] = index
+        team.pop("performance", None)
 
     team_baseline["source"] = "live Formula1 driver standings"
+    if now is not None:
+        completed = [
+            race
+            for race in season_cfg.get("races", []) or []
+            if race.get("end") and str(race["end"]) < now.date().isoformat()
+        ]
+        if completed:
+            last_race = completed[-1]
+            team_baseline["as_of"] = (
+                f"live standings on {now.date().isoformat()}, after "
+                f"R{last_race.get('round')} {last_race.get('name')}"
+            )
+        else:
+            team_baseline["as_of"] = f"live standings on {now.date().isoformat()}"
     season_cfg["team_baseline"] = team_baseline
     config["season_context"] = season_cfg
     logger.info("Standings refresh succeeded from %s", url)

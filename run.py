@@ -19,6 +19,13 @@ from analyzer.fallback_topics import build_fallback_article_topics
 from analyzer.normalize import normalize_posts
 from analyzer.score import score_posts
 from analyzer.season_context import build_season_context_prompt
+from analyzer.season_monitor import (
+    build_season_snapshot,
+    build_season_update_message,
+    load_season_snapshot,
+    monitor_enabled,
+    save_season_snapshot,
+)
 from analyzer.shortlist import shortlist_posts
 from analyzer.standings import refresh_team_baseline_from_standings
 from analyzer.story_db import (
@@ -38,6 +45,7 @@ from generator.digest_writer import generate_digest, save_digest
 from generator.images import generate_images_for_digest
 from generator.preview import generate_preview
 from publisher.telegram import TelegramConfigError, push_digest_to_telegram
+from publisher.telegram_text import send_text_to_telegram
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "config.yaml"
@@ -271,8 +279,15 @@ def main() -> int:
     digest_item_target_chars = int(digest_cfg.get("item_target_chars", 300))
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
     run_context = RunContext.now(window_hours)
-    refresh_team_baseline_from_standings(config)
+    standings_refreshed = refresh_team_baseline_from_standings(config, run_context.generated_at)
     run_context = run_context.with_season_context(build_season_context_prompt(config, run_context.generated_at))
+    season_snapshot = build_season_snapshot(
+        config,
+        run_context.generated_at,
+        standings_refreshed=standings_refreshed,
+    )
+    previous_season_snapshot = load_season_snapshot(ROOT, config)
+    season_update_message = build_season_update_message(previous_season_snapshot, season_snapshot)
     run_id = run_context.generated_at.strftime("%Y-%m-%d_%H%M%S")
     init_story_db(ROOT, config)
     prune_story_db(ROOT, config, run_context.generated_at)
@@ -415,6 +430,21 @@ def main() -> int:
         if not args.telegram_dry_run:
             append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
             record_published_topics(digest_topics, ROOT, config, run_context.generated_at)
+            snapshot_can_advance = True
+            if season_update_message:
+                if args.push_telegram:
+                    try:
+                        send_text_to_telegram(season_update_message, config)
+                        logging.info("Season context update sent to Telegram")
+                    except Exception as exc:
+                        snapshot_can_advance = False
+                        logging.warning("Season context Telegram update failed; will retry: %s", exc)
+                else:
+                    snapshot_can_advance = False
+                    logging.info("Season context update pending until a Telegram-enabled run")
+            if monitor_enabled(config) and snapshot_can_advance:
+                save_season_snapshot(ROOT, config, season_snapshot)
+                logging.info("Season context snapshot updated")
     except Exception as exc:
         logging.error("Failed to generate digest: %s", exc)
         return 1
