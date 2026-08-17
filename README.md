@@ -95,7 +95,10 @@ docker compose up -d --build
 
 The container runs `scheduler.py` and executes one full 24-hour digest at
 `SCHEDULE_DAILY_AT` every day, using `SCHEDULE_TIMEZONE`. By default it pushes
-to Telegram and keeps generated artifacts in `./output`.
+to Telegram and keeps generated artifacts in `./output`. Telegram network
+requests retry three times with incremental five-second backoff. A digest that
+still cannot be sent is recorded in `output/pending_telegram_deliveries.json`
+and is compensated before the next scheduled digest run.
 
 Useful overrides in `.env`:
 

@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -85,11 +86,52 @@ def _telegram_api_url(token: str, method: str) -> str:
     return f"https://api.telegram.org/bot{token}/{method}"
 
 
-def _post_telegram_json(token: str, method: str, payload: dict[str, Any], timeout_sec: int) -> dict[str, Any]:
-    response = requests.post(
-        _telegram_api_url(token, method),
-        json=payload,
-        timeout=timeout_sec,
+def _post_with_retry(
+    request: Callable[[], requests.Response],
+    *,
+    method: str,
+    attempts: int,
+    backoff_sec: float,
+) -> requests.Response:
+    for attempt in range(1, attempts + 1):
+        try:
+            return request()
+        except requests.RequestException as exc:
+            if attempt == attempts:
+                raise RuntimeError(
+                    f"Telegram {method} network request failed after {attempts} attempts: "
+                    f"{type(exc).__name__}"
+                ) from exc
+            delay = backoff_sec * attempt
+            logger.warning(
+                "Telegram %s network request failed (attempt %d/%d); retrying in %.1fs: %s",
+                method,
+                attempt,
+                attempts,
+                delay,
+                type(exc).__name__,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def _post_telegram_json(
+    token: str,
+    method: str,
+    payload: dict[str, Any],
+    timeout_sec: int,
+    retry_attempts: int,
+    retry_backoff_sec: float,
+) -> dict[str, Any]:
+    response = _post_with_retry(
+        lambda: requests.post(
+            _telegram_api_url(token, method),
+            json=payload,
+            timeout=timeout_sec,
+        ),
+        method=method,
+        attempts=retry_attempts,
+        backoff_sec=retry_backoff_sec,
     )
     try:
         data = response.json()
@@ -107,6 +149,8 @@ def _send_media_group(
     chat_id: str,
     images: list[Path],
     timeout_sec: int,
+    retry_attempts: int,
+    retry_backoff_sec: float,
 ) -> dict[str, Any] | None:
     if not images:
         return None
@@ -122,11 +166,21 @@ def _send_media_group(
             handles.append(handle)
             files[field] = (image_path.name, handle, "image/png")
 
-        response = requests.post(
-            _telegram_api_url(token, "sendMediaGroup"),
-            data={"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
-            files=files,
-            timeout=timeout_sec,
+        def send_request() -> requests.Response:
+            for handle in handles:
+                handle.seek(0)
+            return requests.post(
+                _telegram_api_url(token, "sendMediaGroup"),
+                data={"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
+                files=files,
+                timeout=timeout_sec,
+            )
+
+        response = _post_with_retry(
+            send_request,
+            method="sendMediaGroup",
+            attempts=retry_attempts,
+            backoff_sec=retry_backoff_sec,
         )
         try:
             data = response.json()
@@ -152,6 +206,8 @@ def push_digest_to_telegram(
     token = os.getenv("TELEGRAM_BOT_TOKEN") or telegram_cfg.get("bot_token")
     chat_id = os.getenv("TELEGRAM_CHAT_ID") or telegram_cfg.get("chat_id")
     timeout_sec = int(telegram_cfg.get("timeout_sec", 30))
+    retry_attempts = max(1, int(telegram_cfg.get("retry_attempts", 3)))
+    retry_backoff_sec = max(0, float(telegram_cfg.get("retry_backoff_seconds", 5)))
     max_text_chars = int(telegram_cfg.get("max_text_chars", DEFAULT_MAX_TEXT_CHARS))
 
     if not token:
@@ -186,8 +242,17 @@ def push_digest_to_telegram(
             "disable_web_page_preview": True,
         },
         timeout_sec,
+        retry_attempts,
+        retry_backoff_sec,
     )
-    media_result = _send_media_group(token, chat_id, images, timeout_sec)
+    media_result = _send_media_group(
+        token,
+        chat_id,
+        images,
+        timeout_sec,
+        retry_attempts,
+        retry_backoff_sec,
+    )
 
     logger.info("Telegram push complete: %d images", len(images))
     return {

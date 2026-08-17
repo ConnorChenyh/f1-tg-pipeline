@@ -338,6 +338,9 @@ article_fetch:
 
 telegram:
   timeout_sec: 30
+  retry_attempts: 3
+  retry_backoff_seconds: 5
+  pending_deliveries_path: output/pending_telegram_deliveries.json
   max_text_chars: 1000
 
 scheduler:

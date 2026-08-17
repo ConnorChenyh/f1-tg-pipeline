@@ -66,6 +66,12 @@ docker compose logs --tail=60 f1-tg-pipeline
 The compose service runs `scheduler.py`. Generated artifacts and persistent
 memory are kept in `./output` via a bind mount.
 
+Telegram network requests retry three times with incremental five-second
+backoff. If all attempts fail, the generated output directory is added to
+`output/pending_telegram_deliveries.json`; the next Telegram-enabled scheduled
+run tries those pending digests before producing the new one. Successful
+compensation removes the entry. Existing outputs are never added retroactively.
+
 Default schedule:
 
 ```bash

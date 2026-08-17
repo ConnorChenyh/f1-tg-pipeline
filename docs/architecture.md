@@ -44,6 +44,8 @@ Telegram publisher
 - `run.py` runs one complete pipeline execution.
 - `scheduler.py` runs the daily Docker schedule and calls `run.py`.
 - `publisher/telegram.py` can push a generated digest directory without rerunning the pipeline.
+- `publisher/telegram_delivery_queue.py` persists failed post-send deliveries and
+  compensates them at the start of the next Telegram-enabled run.
 
 ## Collection Layer
 
@@ -202,3 +204,7 @@ and live standings snapshot. `run.py` compares it with the current calendar on
 each successful run. Meaningful changes are sent as a separate Telegram message;
 the state advances only after that notification succeeds, so transient Telegram
 failures retry on the next run.
+
+`output/pending_telegram_deliveries.json` separately tracks digest deliveries
+that still fail after the configured Telegram network retries. This avoids
+losing an already-generated digest during a transient outbound-network outage.

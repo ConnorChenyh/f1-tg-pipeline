@@ -45,6 +45,7 @@ from generator.digest_writer import generate_digest, save_digest
 from generator.images import generate_images_for_digest
 from generator.preview import generate_preview
 from publisher.telegram import TelegramConfigError, push_digest_to_telegram
+from publisher.telegram_delivery_queue import deliver_pending_digests, enqueue_pending_delivery
 from publisher.telegram_text import send_text_to_telegram
 
 ROOT = Path(__file__).resolve().parent
@@ -266,6 +267,11 @@ def main() -> int:
             logging.error("Telegram push failed: %s", exc)
             return 1
 
+    if args.push_telegram:
+        delivered = deliver_pending_digests(ROOT, config)
+        if delivered:
+            logging.info("Telegram compensation completed for %d pending digest(s)", delivered)
+
     window_hours = args.hours if args.hours is not None else int(config.get("window_hours", 12))
     max_drafts = args.max_drafts if args.max_drafts is not None else int(config.get("max_drafts", 3))
     heat_threshold = int(config.get("heat_threshold", 60))
@@ -425,7 +431,12 @@ def main() -> int:
         save_json(draft_dir / "meta.json", meta)
         logging.info("Generated digest at %s", draft_dir)
         if args.push_telegram:
-            result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
+            try:
+                result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
+            except Exception:
+                if not args.telegram_dry_run:
+                    enqueue_pending_delivery(ROOT, config, output_dir)
+                raise
             logging.info("Telegram push result: %s", result)
         if not args.telegram_dry_run:
             append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
