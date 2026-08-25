@@ -21,6 +21,8 @@ def send_text_to_telegram(
     token = os.getenv("TELEGRAM_BOT_TOKEN") or telegram_cfg.get("bot_token")
     chat_id = os.getenv("TELEGRAM_CHAT_ID") or telegram_cfg.get("chat_id")
     timeout_sec = int(telegram_cfg.get("timeout_sec", 30))
+    retry_attempts = max(1, int(telegram_cfg.get("retry_attempts", 3)))
+    retry_backoff_sec = max(0, float(telegram_cfg.get("retry_backoff_seconds", 5)))
 
     if not token:
         raise TelegramConfigError("TELEGRAM_BOT_TOKEN is not set")
@@ -37,4 +39,6 @@ def send_text_to_telegram(
             "disable_web_page_preview": True,
         },
         timeout_sec,
+        retry_attempts,
+        retry_backoff_sec,
     )
