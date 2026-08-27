@@ -26,6 +26,14 @@ EVENT_CONFLATION_PATTERNS = [
     ),
 ]
 
+RACE_LOCATION_PATTERNS = [
+    (
+        "impossible_bahrain_malaysia_race_location",
+        re.compile(r"(?:于|在)马来西亚[^。！？，；、\n]{0,12}举行的巴林大奖赛"),
+        "不能把巴林大奖赛与马来西亚举办地压缩成定语关系；应明确写为“巴林站取消后改在马来西亚雪邦举行”。",
+    ),
+]
+
 STYLE_RISK_PATTERNS = [
     (
         "ambiguous_new_champion",
@@ -232,6 +240,7 @@ def validate_digest(
             )
 
     _append_pattern_issues(issues, fields, EVENT_CONFLATION_PATTERNS, "error")
+    _append_pattern_issues(issues, fields, RACE_LOCATION_PATTERNS, "error")
     _append_pattern_issues(issues, fields, TECHNICAL_TERM_PATTERNS, "warn")
     _append_pattern_issues(issues, fields, STYLE_RISK_PATTERNS, "warn")
     _append_source_anchor_issues(issues, fields)

@@ -73,6 +73,8 @@ Review rules:
 - If a reviewed item is too short but evidence contains verified context, expand using only evidence-backed background, numbers, quotes, timeline, uncertainty, and significance
 - If a reviewed item is too long, compress by removing repeated caveats, secondary color, and redundant background, not by changing facts
 - Fix semantic errors caused by compressing separate actions into one sentence
+- For disputes, preserve the complete reasoning chain: who doubts which claim, and which evidence-backed budget/rule fact explains that doubt. Do not leave the reason as an unrelated final sentence.
+- For relocated Grands Prix, state the move explicitly (for example, “巴林站取消后改在马来西亚雪邦举行”); do not turn the race name and host country into an ambiguous modifier.
 - Re-check time wording: evidence.created_at, RSS publication time, and article publication time are not event time. Remove or soften “今天/周二/昨日/本周/过去24小时内发生” unless evidence.content explicitly supports that event timing
 - For event recaps whose event date is unclear or earlier than the run window, phrase them as “报道回顾/报道发布/视频显示”, not as newly happened events
 - Re-check names: drivers, team principals, teams, circuits, race names, seasons, car model years

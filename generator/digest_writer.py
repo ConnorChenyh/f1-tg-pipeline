@@ -63,6 +63,8 @@ Rules:
 - Never treat evidence.created_at, RSS publication time, or article publication time as the event time. Only write “今天/周二/昨日/本周” for the event itself when evidence.content explicitly says the event happened at that time
 - If an article is a later recap of an event whose event date is unclear or outside the run window, write “报道回顾/报道发布/视频显示” instead of implying it happened in the last 24 hours
 - Preserve event sequence accurately; do not merge separate actions into one sentence
+- For a dispute or scepticism item, state the complete chain in one place: who challenges which specific claim, and the evidence-backed reason for that challenge. Do not leave a rule, budget allowance, or technical detail as detached background.
+- If a Grand Prix keeps its commercial name but is relocated, state the relocation explicitly. For example, write “巴林站取消后改在马来西亚雪邦举行”; never compress this into “在马来西亚举行的巴林大奖赛”.
 - Never write that someone drove a car onto a balcony unless the evidence literally says that
 - Translate champion/title/win/podium carefully; avoid “新科冠军” unless the evidence explicitly supports that exact meaning
 - For technical acronyms, aero parts, power-unit systems, and named upgrades, keep the original English term unless a reliable common Chinese name is evident in the evidence
