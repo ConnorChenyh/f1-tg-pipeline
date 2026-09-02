@@ -111,11 +111,12 @@ season_context:
   standings_refresh:
     enabled: true
     driver_url: "https://www.formula1.com/en/results/2026/drivers"
+    team_url: "https://www.formula1.com/en/results/2026/team"
     timeout_sec: 15
   team_baseline:
     as_of: "after R11 Hungarian Grand Prix, before R12 Dutch Grand Prix, 2026 summer break"
     qualitative_as_of_round: 11
-    source: "configured snapshot, refresh from Formula1 driver standings on each run when available"
+    source: "configured snapshot, refresh from Formula1 driver and team standings on each run when available"
     teams:
       - name: Mercedes
         chassis: "F1 W17"

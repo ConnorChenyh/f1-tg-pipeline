@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from analyzer.standings import (
     _extract_from_text,
+    _extract_team_standings_from_text,
     refresh_team_baseline_from_standings,
 )
 
@@ -30,6 +31,16 @@ class StandingsTests(unittest.TestCase):
         self.assertEqual("Kimi Antonelli", standings[0].name)
         self.assertEqual("Mercedes", standings[0].team)
         self.assertEqual(219, standings[0].points)
+
+    def test_extract_team_standings_from_text(self) -> None:
+        standings = _extract_team_standings_from_text(
+            "1 Mercedes 425 2 Ferrari 338 3 McLaren 263 4 Red Bull Racing 186"
+        )
+
+        self.assertEqual(4, len(standings))
+        self.assertEqual("Red Bull Racing", standings[-1].name)
+        self.assertEqual(4, standings[-1].standing)
+        self.assertEqual(186, standings[-1].points)
 
     def test_refresh_team_baseline_updates_points_and_positions(self) -> None:
         config = {
@@ -57,6 +68,7 @@ class StandingsTests(unittest.TestCase):
         from analyzer import standings as standings_module
 
         original = standings_module.fetch_driver_standings
+        original_team = standings_module.fetch_team_standings
         try:
             standings_module.fetch_driver_standings = lambda _url, _timeout: _extract_from_text(
                 """
@@ -70,23 +82,27 @@ class StandingsTests(unittest.TestCase):
                 8 Isack Hadjar Red Bull Racing 68
                 """
             )
+            standings_module.fetch_team_standings = lambda _url, _timeout: _extract_team_standings_from_text(
+                "1 Mercedes 425 2 Ferrari 338 3 McLaren 263 4 Red Bull Racing 186"
+            )
             refreshed = refresh_team_baseline_from_standings(
                 config,
                 datetime(2026, 8, 11, 4, 0, tzinfo=timezone.utc),
             )
         finally:
             standings_module.fetch_driver_standings = original
+            standings_module.fetch_team_standings = original_team
 
         self.assertTrue(refreshed)
         teams = config["season_context"]["team_baseline"]["teams"]
         by_name = {team["name"]: team for team in teams}
-        self.assertEqual(379, by_name["Mercedes"]["constructors_points"])
+        self.assertEqual(425, by_name["Mercedes"]["constructors_points"])
         self.assertEqual(1, by_name["Mercedes"]["constructors_position"])
-        self.assertEqual(307, by_name["Ferrari"]["constructors_points"])
+        self.assertEqual(338, by_name["Ferrari"]["constructors_points"])
         self.assertEqual(2, by_name["Ferrari"]["constructors_position"])
-        self.assertEqual(177, by_name["Red Bull Racing"]["constructors_points"])
+        self.assertEqual(186, by_name["Red Bull Racing"]["constructors_points"])
         self.assertEqual(4, by_name["Red Bull Racing"]["constructors_position"])
-        self.assertEqual("live Formula1 driver standings", config["season_context"]["team_baseline"]["source"])
+        self.assertEqual("live Formula1 driver and team standings", config["season_context"]["team_baseline"]["source"])
         self.assertIn("after R11 Hungarian Grand Prix", config["season_context"]["team_baseline"]["as_of"])
 
 
