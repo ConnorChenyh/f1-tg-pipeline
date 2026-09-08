@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from PIL import Image, ImageDraw, ImageFont
@@ -7,6 +8,9 @@ from PIL import Image, ImageDraw, ImageFont
 F1_RED = "#E10600"
 F1_DARK = "#15151E"
 F1_LIGHT = "#F5F5F5"
+TEXT_WIDTH_RATIO = 0.9
+
+_WRAP_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+(?:[.'’/+&:-][A-Za-z0-9_]+)*|[ \t]+|.")
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -46,17 +50,20 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, 
             lines.append("")
             continue
         current = ""
-        for char in paragraph:
-            candidate = current + char
+        for token in _WRAP_TOKEN_RE.findall(paragraph):
+            if token.isspace() and not current:
+                continue
+
+            candidate = current + token
             bbox = draw.textbbox((0, 0), candidate, font=font)
             if bbox[2] - bbox[0] <= max_width:
                 current = candidate
             else:
                 if current:
-                    lines.append(current)
-                current = char
+                    lines.append(current.rstrip())
+                current = token.lstrip()
         if current:
-            lines.append(current)
+            lines.append(current.rstrip())
     return lines
 
 
@@ -99,6 +106,7 @@ def render_item_card(ordinal: str, headline: str, content: str, width: int, heig
     margin_x = 72
     top_y = 70
     max_width = width - margin_x * 2
+    text_width = int(max_width * TEXT_WIDTH_RATIO)
     draw.rectangle([(0, 0), (width, 22)], fill=F1_RED)
     draw.rectangle([(0, height - 18), (width, height)], fill=F1_DARK)
 
@@ -115,7 +123,7 @@ def render_item_card(ordinal: str, headline: str, content: str, width: int, heig
         (margin_x + 96, title_y),
         title_font,
         F1_DARK,
-        max_width - 96,
+        int((max_width - 96) * TEXT_WIDTH_RATIO),
         line_spacing=12,
     )
 
@@ -133,7 +141,7 @@ def render_item_card(ordinal: str, headline: str, content: str, width: int, heig
     for size in range(34, 21, -2):
         font = _load_font(size)
         spacing = max(10, size // 3)
-        lines = _wrap_text(draw, text, font, max_width)
+        lines = _wrap_text(draw, text, font, text_width)
         if _measure_lines_height(draw, lines, font, spacing) <= body_height:
             chosen_font = font
             chosen_lines = lines
@@ -143,7 +151,7 @@ def render_item_card(ordinal: str, headline: str, content: str, width: int, heig
     if chosen_font is None:
         chosen_font = _load_font(22)
         chosen_spacing = 8
-        chosen_lines = _wrap_text(draw, text, chosen_font, max_width)
+        chosen_lines = _wrap_text(draw, text, chosen_font, text_width)
         while chosen_lines and _measure_lines_height(draw, chosen_lines, chosen_font, chosen_spacing) > body_height:
             chosen_lines.pop()
         if chosen_lines:
@@ -167,6 +175,7 @@ def render_digest_summary_card(items: list[dict[str, Any]], width: int, height: 
     draw = ImageDraw.Draw(img)
     margin_x = 72
     max_width = width - margin_x * 2
+    text_width = int(max_width * TEXT_WIDTH_RATIO)
 
     draw.rectangle([(0, 0), (width, 22)], fill=F1_RED)
     draw.rectangle([(0, height - 18), (width, height)], fill=F1_RED)
@@ -178,14 +187,14 @@ def render_digest_summary_card(items: list[dict[str, Any]], width: int, height: 
     y = 96
     draw.text((margin_x, y), "F1 24H DIGEST", font=label_font, fill=F1_RED)
     y += 72
-    y = _draw_multiline(draw, "围场过去24H新闻", (margin_x, y), title_font, F1_LIGHT, max_width, line_spacing=14)
+    y = _draw_multiline(draw, "围场过去24H新闻", (margin_x, y), title_font, F1_LIGHT, text_width, line_spacing=14)
     y += 70
 
     for item in items[:6]:
         ordinal = item.get("ordinal") or ""
         headline = item.get("headline") or ""
         line = f"{ordinal}、{headline}".strip("、")
-        y = _draw_multiline(draw, line, (margin_x, y), item_font, "#F0F0F3", max_width, line_spacing=12)
+        y = _draw_multiline(draw, line, (margin_x, y), item_font, "#F0F0F3", text_width, line_spacing=12)
         y += 30
         if y > height - 180:
             break

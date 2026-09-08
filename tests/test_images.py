@@ -4,10 +4,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from generator.images import generate_images_for_digest
+from PIL import Image, ImageDraw
+
+from generator.images import TEXT_WIDTH_RATIO, _load_font, _wrap_text, generate_images_for_digest
 
 
 class DigestImageTests(unittest.TestCase):
+    def test_wrap_text_keeps_english_words_intact(self) -> None:
+        draw = ImageDraw.Draw(Image.new("RGB", (400, 200)))
+        font = _load_font(30)
+        word_width = draw.textbbox((0, 0), "McLaren", font=font)[2]
+
+        lines = _wrap_text(draw, "前McLaren后 Mercedes-AMG", font, word_width - 1)
+
+        self.assertEqual(lines, ["前", "McLaren", "后", "Mercedes-AMG"])
+
+    def test_text_width_is_reduced_to_encourage_more_line_breaks(self) -> None:
+        self.assertEqual(TEXT_WIDTH_RATIO, 0.9)
+
     def test_digest_images_are_topic_text_cards_only(self) -> None:
         draft = {
             "title": "围场过去24H新闻",
