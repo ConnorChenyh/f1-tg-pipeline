@@ -184,8 +184,9 @@ The digest sends:
 - one detail image per digest item
 
 `render_item_card_with_measure` reports how much of an item's content actually
-fit: the smallest font is tried first, and if text still overflows, lines are
-dropped and `truncated` is set. `generate_images_for_digest` writes
+fit: font sizes are searched from largest to smallest (34 down to 22), and if the
+text still overflows at the smallest size, lines are dropped and `truncated` is
+set. `dropped_lines` counts the lines the draw loop skipped. `generate_images_for_digest` writes
 `drafts/digest/render_measurements.json` with per-slide `source_chars`,
 `rendered_chars`, `truncated`, and `font_size`, and logs a warning listing any
 truncated slides. `run.py` copies that report into `meta.json` under

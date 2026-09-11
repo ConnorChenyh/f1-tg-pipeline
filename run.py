@@ -27,6 +27,7 @@ from analyzer.run_state import (
     RunState,
     find_resumable_run,
     mark_active_run,
+    mark_delivered,
     parse_generated_at,
     save_run_state,
 )
@@ -293,6 +294,19 @@ def fill_with_article_fallbacks(
     return topics + fallback_topics, skipped_topics
 
 
+def compensated_already(state, output_dir: Path, compensated_dirs: set[str]) -> bool:
+    """True when the compensation pass delivered this run's digest already."""
+    if state is None or state.has(STAGE_DELIVERED):
+        return False
+    return f"output/{output_dir.name}" in compensated_dirs
+
+
+def _client_for(config: dict) -> DeepSeekClient:
+    """Construct the model client on demand, so resume paths that only render an
+    already-written draft do not require an API key."""
+    return DeepSeekClient(config)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="F1 hot topics to Xiaohongshu draft pipeline")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Path to config.yaml")
@@ -342,9 +356,10 @@ def main() -> int:
 
     if args.push_telegram and not test_mode:
         queued_before = pending_output_dirs(ROOT, config)
-        delivered = deliver_pending_digests(ROOT, config)
-        if delivered:
-            logging.info("Telegram compensation completed for %d pending digest(s)", delivered)
+        if queued_before:
+            delivered = deliver_pending_digests(ROOT, config)
+            if delivered:
+                logging.info("Telegram compensation completed for %d pending digest(s)", delivered)
         # Record the set so a resumed run can tell that its own digest was just
         # compensated and must not be sent a second time.
         compensated_dirs = queued_before - pending_output_dirs(ROOT, config)
@@ -416,6 +431,14 @@ def main() -> int:
     if output_dir is not None:
         state = prior_state
         logging.info("Output directory (resumed): %s", output_dir)
+        if compensated_already(state, output_dir, compensated_dirs):
+            # Already delivered by the compensation pass; commit that now so a
+            # later local failure cannot cause a second send on resume. The
+            # guard still runs, so a rejected draft is still reported and is not
+            # delivered again.
+            state.mark(STAGE_DELIVERED)
+            save_run_state(output_dir, state)
+            logging.info("Recorded early delivery for %s (compensated)", output_dir.name)
     else:
         state = RunState(
             run_id=run_id,
@@ -477,16 +500,12 @@ def main() -> int:
                 skipped_recent_topics = list(recorded.get("skipped_recent_topics") or [])
             except (OSError, json.JSONDecodeError, AttributeError) as exc:
                 logging.warning("Ignoring unreadable %s: %s", status_path, exc)
-        if not args.mock:
-            # Topic extraction was skipped, but the digest still has to be
-            # written, so the client must exist on this path too.
-            client = DeepSeekClient(config)
     elif args.mock:
         topics = enrich_topics_with_evidence(mock_topics(shortlisted), shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
         client = None
     else:
-        client = DeepSeekClient(config)
+        client = _client_for(config)
         topics = extract_topics(
             client,
             shortlisted,
@@ -571,6 +590,9 @@ def main() -> int:
         elif args.mock:
             draft = mock_digest(digest_topics)
         else:
+            # Only reached when the digest still has to be written.
+            if client is None:
+                client = _client_for(config)
             draft, fact_check_notes, guard_blocking_codes = generate_digest(
                 client,
                 digest_topics,
@@ -636,7 +658,11 @@ def main() -> int:
                 result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
                 pushed_ok = True
             except Exception:
-                if not args.telegram_dry_run:
+                if test_mode:
+                    # A test-mode delivery failure must not queue a test digest
+                    # for real compensation on a later production run.
+                    logging.warning("Test mode: not queuing the failed delivery")
+                else:
                     enqueue_pending_delivery(ROOT, config, output_dir)
                 raise
             logging.info("Telegram push result: %s", result)

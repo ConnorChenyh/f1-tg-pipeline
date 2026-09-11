@@ -169,13 +169,20 @@ starts, then it will continue with the daily schedule.
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,
   semantic clarity, terminology, and last-mile fact confirmation.
 - LLM responses are contract-checked. A response with valid JSON but the wrong
-  shape (missing `items`, empty `topics`, a non-string headline/content) triggers
-  a repair re-prompt that includes the specific validation error, rather than a
-  blind repeat of the same request. The fact-check and final-review passes are
-  re-validated too, since they rewrite the draft.
-- A `heat_score` that cannot be read as a number is **not** repaired: it is
-  coerced to `0`, logged, and then dropped by `heat_threshold`. Inspect
-  `topics.json` and the log if a topic disappears unexpectedly.
+  shape (missing `items`, empty `topics`, a non-string headline/content, hashtags
+  that are not a list of strings) triggers a repair re-prompt that includes the
+  specific validation error, rather than a blind repeat of the same request.
+- Some fields are **coerced rather than repaired**: a numeric `hook`/`content` is
+  converted to text instead of re-prompting. If that happens, no repair occurs.
+- The fact-check and final-review passes rewrite the draft, so their output is
+  re-validated. If a review reply is structurally unusable, the draft written
+  before that pass is kept and a warning is logged, so a bad second opinion does
+  not discard the digest.
+- A `heat_score` that cannot be read as a number is coerced to `0` and logged
+  with the offending value. Such a topic is then usually dropped by
+  `heat_threshold`, although the minimum-topic backfill can still re-add it.
+  `topics.json` only stores the topics that were finally selected, so a dropped
+  topic will not appear there — check the log line instead.
 - If the deterministic quality guard still rejects the draft after review, the
   run **saves the draft anyway** and records `guard_blocked` plus
   `guard_blocking_codes` in `meta.json`. Delivery is skipped and no season

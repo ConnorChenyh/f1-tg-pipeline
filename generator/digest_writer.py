@@ -99,12 +99,30 @@ def _validate_digest_payload(payload: Any) -> dict[str, Any]:
         if ordinal is not None and not isinstance(ordinal, str):
             item["ordinal"] = str(ordinal)
 
+    for key in ("hook", "risk_note"):
+        value = payload.get(key)
+        if value is not None and not isinstance(value, str):
+            payload[key] = str(value)
+
+    for index, item in enumerate(items, start=1):
+        for key in ("headline", "content"):
+            if not isinstance(item.get(key), str):
+                raise ResponseShapeError(f"items[{index}].{key} must be a string")
+
     hashtags = payload.get("hashtags")
-    if hashtags is not None and not isinstance(hashtags, list):
-        raise ResponseShapeError("'hashtags' must be a JSON array when present")
+    if hashtags is not None:
+        if not isinstance(hashtags, list):
+            raise ResponseShapeError("'hashtags' must be a JSON array when present")
+        for tag in hashtags:
+            if not isinstance(tag, str):
+                raise ResponseShapeError("'hashtags' entries must be strings")
     sources = payload.get("sources")
-    if sources is not None and not isinstance(sources, list):
-        raise ResponseShapeError("'sources' must be a JSON array when present")
+    if sources is not None:
+        if not isinstance(sources, list):
+            raise ResponseShapeError("'sources' must be a JSON array when present")
+        for source in sources:
+            if not isinstance(source, str):
+                raise ResponseShapeError("'sources' entries must be strings")
     return payload
 
 
@@ -135,10 +153,36 @@ def _coerce_reviewed_draft(draft: Any) -> dict[str, Any]:
             entry["ordinal"] = str(entry["ordinal"])
         clean_items.append(entry)
     repaired["items"] = clean_items
+    for key in ("hook", "risk_note"):
+        if repaired.get(key) is not None:
+            repaired[key] = str(repaired[key])
     for key in ("hashtags", "sources"):
-        if repaired.get(key) is not None and not isinstance(repaired[key], list):
-            repaired[key] = [str(repaired[key])]
+        value = repaired.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            repaired[key] = [str(item) for item in value]
+        else:
+            repaired[key] = [str(value)]
     return repaired
+
+
+def _keep_valid_draft(candidate: Any, fallback: dict[str, Any], stage: str) -> dict[str, Any]:
+    """Apply the contract to a review result, keeping the last valid draft.
+
+    A review pass is a rewrite: if it returns something structurally broken, the
+    draft that was already written is still good and must not be thrown away
+    because of a bad second opinion.
+    """
+    try:
+        return _coerce_reviewed_draft(candidate)
+    except ResponseShapeError as exc:
+        logger.warning(
+            "%s returned an unusable draft (%s); keeping the previous draft",
+            stage,
+            exc,
+        )
+        return fallback
 
 
 def generate_digest(
@@ -192,6 +236,7 @@ def generate_digest(
 
     fact_check_notes: list[str] = []
     if fact_check_enabled:
+        draft_before_fact_check = draft
         draft, fact_check_notes = fact_check_digest(
             client,
             draft,
@@ -201,7 +246,7 @@ def generate_digest(
             grounding=grounding,
             quality_issues=issue_dicts(quality_issues),
         )
-        draft = _coerce_reviewed_draft(draft)
+        draft = _keep_valid_draft(draft, draft_before_fact_check, "fact check")
 
     review_notes: list[str] = []
     if final_review_enabled:
@@ -213,6 +258,7 @@ def generate_digest(
             min_item_chars=item_min_chars,
             max_item_chars=item_max_chars,
         )
+        draft_before_final_review = draft
         draft, review_notes = final_review_digest(
             client,
             draft,
@@ -222,7 +268,7 @@ def generate_digest(
             grounding=grounding,
             quality_issues=issue_dicts(review_quality_issues),
         )
-        draft = _coerce_reviewed_draft(draft)
+        draft = _keep_valid_draft(draft, draft_before_final_review, "final review")
 
     final_quality_issues = validate_digest(
         draft,

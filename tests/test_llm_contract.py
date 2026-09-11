@@ -279,3 +279,53 @@ class MalformedJsonRetryTests(unittest.TestCase):
             client.chat_json("model", "system", "p")
 
         self.assertEqual(calls["n"], 1)
+
+
+class ReviewFailurePreservesDraftTests(unittest.TestCase):
+    """B3: a broken review reply must not cost the already-written draft."""
+
+    def test_broken_review_keeps_previous_draft(self) -> None:
+        from generator.digest_writer import _keep_valid_draft
+
+        previous = {"items": [{"ordinal": "一", "headline": "标题", "content": "正文"}]}
+
+        kept = _keep_valid_draft({"items": [None]}, previous, "final review")
+
+        self.assertEqual(kept["items"][0]["content"], "正文")
+
+    def test_valid_review_replaces_draft(self) -> None:
+        from generator.digest_writer import _keep_valid_draft
+
+        previous = {"items": [{"ordinal": "一", "headline": "旧", "content": "旧正文"}]}
+        reviewed = {"items": [{"ordinal": "一", "headline": "新", "content": "新正文"}]}
+
+        kept = _keep_valid_draft(reviewed, previous, "final review")
+
+        self.assertEqual(kept["items"][0]["headline"], "新")
+
+    def test_hook_and_hashtag_elements_are_validated(self) -> None:
+        with self.assertRaises(ResponseShapeError):
+            _validate_digest_payload(
+                {
+                    "items": [{"ordinal": "一", "headline": "标题", "content": "正文"}],
+                    "hashtags": [123],
+                }
+            )
+
+        with self.assertRaises(ResponseShapeError):
+            _validate_digest_payload(
+                {
+                    "items": [{"ordinal": "一", "headline": "标题", "content": "正文"}],
+                    "sources": [None],
+                }
+            )
+
+    def test_numeric_hook_is_coerced(self) -> None:
+        result = _validate_digest_payload(
+            {
+                "items": [{"ordinal": "一", "headline": "标题", "content": "正文"}],
+                "hook": 123,
+            }
+        )
+
+        self.assertEqual(result["hook"], "123")

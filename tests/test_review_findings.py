@@ -6,6 +6,7 @@ Each is rewritten to assert correct behaviour as the corresponding fix lands.
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -15,9 +16,12 @@ from unittest.mock import patch
 import run as run_module
 from analyzer.run_state import (
     STAGE_COLLECT,
+    find_resumable_run,
+    STAGE_DELIVERED,
     STAGE_DIGEST,
     STAGE_TOPICS,
     RunState,
+    load_run_state,
     mark_active_run,
     save_run_state,
 )
@@ -257,3 +261,204 @@ class R9TestModeCompensationTests(unittest.TestCase):
                 run_module.main()
 
         self.assertEqual(sent, [], "a --mock run must never send queued Telegram digests")
+
+
+class B1MockQueuePollutionTests(unittest.TestCase):
+    """B1: a mock delivery failure must not pollute the shared compensation queue."""
+
+    def test_mock_delivery_failure_does_not_queue(self) -> None:
+        helper = ResumeIntegrationTests()
+        scripts = helper._scripts()
+        client = helper._fake_client(scripts, [])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            now = datetime.now(timezone.utc)
+
+            def boom(*a, **k):
+                raise RuntimeError("telegram down")
+
+            with patch.object(run_module, "ROOT", root), \
+                 patch.object(run_module, "load_config", return_value=config), \
+                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
+                 patch.object(run_module, "collect_reddit", return_value=[]), \
+                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
+                 patch.object(run_module, "collect_twitter", return_value=[]), \
+                 patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
+                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
+                 patch.object(run_module, "build_season_snapshot", return_value={}), \
+                 patch.object(run_module, "load_season_snapshot", return_value=None), \
+                 patch.object(run_module, "build_season_update_message", return_value=None), \
+                 patch.object(run_module, "push_digest_to_telegram", side_effect=boom), \
+                 patch.object(run_module.sys, "argv", ["run.py", "--mock", "--push-telegram"]):
+                from analyzer.context import RunContext as RealRunContext
+
+                ctx_cls.now.return_value = RealRunContext.now(24)
+                run_module.main()
+
+            queue = root / "output" / "pending_telegram_deliveries.json"
+            queued = json.loads(queue.read_text(encoding="utf-8")) if queue.exists() else {"deliveries": []}
+
+        self.assertEqual(
+            queued.get("deliveries"),
+            [],
+            "a mock run must not queue a test digest for real compensation",
+        )
+
+
+class B4ResumeWithoutApiKeyTests(unittest.TestCase):
+    """B4: resuming a run whose digest is already written needs no model key."""
+
+    def test_resume_without_api_key_after_digest_checkpoint(self) -> None:
+        helper = ResumeIntegrationTests()
+        scripts = helper._scripts()
+        draft = scripts["digest"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            now = datetime.now(timezone.utc)
+
+            run_dir = root / "output" / "2026-09-11_120000"
+            draft_dir = run_dir / "drafts" / "digest"
+            draft_dir.mkdir(parents=True)
+            (run_dir / "shortlisted_posts.json").write_text(
+                json.dumps([_stub_post(now).to_dict()]), encoding="utf-8"
+            )
+            (run_dir / "topics.json").write_text(json.dumps([_stub_topic()]), encoding="utf-8")
+            (draft_dir / "draft.json").write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
+            save_run_state(
+                run_dir,
+                RunState(run_dir.name, now.isoformat(), 24, [STAGE_COLLECT, STAGE_TOPICS, STAGE_DIGEST]),
+            )
+            mark_active_run(root, run_dir)
+
+            env = {"TELEGRAM_BOT_TOKEN": "", "TELEGRAM_CHAT_ID": ""}
+            with patch.dict("os.environ", env, clear=False), \
+                 patch.dict("os.environ", {}, clear=False), \
+                 patch.object(run_module, "ROOT", root), \
+                 patch.object(run_module, "load_config", return_value=config), \
+                 patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
+                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
+                 patch.object(run_module, "build_season_snapshot", return_value={}), \
+                 patch.object(run_module, "load_season_snapshot", return_value=None), \
+                 patch.object(run_module, "build_season_update_message", return_value=None), \
+                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--resume"]):
+                from analyzer.context import RunContext as RealRunContext
+
+                ctx_cls.now.return_value = RealRunContext.now(24)
+                with patch.dict("os.environ", {"DEEPSEEK_API_KEY": ""}):
+                    os.environ.pop("DEEPSEEK_API_KEY", None)
+                    code = run_module.main()
+
+        self.assertEqual(code, 0, "rendering an already-written draft must not need an API key")
+
+
+class B2CompensationThenFailureTests(unittest.TestCase):
+    """B2: a local failure after compensation must not cause a second send."""
+
+    def _prepare(self, root: Path, now: datetime, draft: dict) -> Path:
+        run_dir = root / "output" / "2026-09-11_120000"
+        draft_dir = run_dir / "drafts" / "digest"
+        draft_dir.mkdir(parents=True)
+        (run_dir / "shortlisted_posts.json").write_text(
+            json.dumps([_stub_post(now).to_dict()]), encoding="utf-8"
+        )
+        (run_dir / "topics.json").write_text(json.dumps([_stub_topic()]), encoding="utf-8")
+        (draft_dir / "draft.json").write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
+        save_run_state(
+            run_dir,
+            RunState(run_dir.name, now.isoformat(), 24, [STAGE_COLLECT, STAGE_TOPICS, STAGE_DIGEST]),
+        )
+        mark_active_run(root, run_dir)
+        (root / "output" / "pending_telegram_deliveries.json").write_text(
+            json.dumps({"deliveries": [{"output_dir": f"output/{run_dir.name}", "queued_at": now.isoformat()}]}),
+            encoding="utf-8",
+        )
+        return run_dir
+
+    def test_failure_after_compensation_does_not_resend_on_resume(self) -> None:
+        helper = ResumeIntegrationTests()
+        scripts = helper._scripts()
+        client = helper._fake_client(scripts, [])
+        draft = scripts["digest"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            now = datetime.now(timezone.utc)
+            run_dir = self._prepare(root, now, draft)
+            deliveries: list = []
+
+            def compensate(*a, **k):
+                deliveries.append("compensate")
+                (root / "output" / "pending_telegram_deliveries.json").write_text(
+                    json.dumps({"deliveries": []}), encoding="utf-8"
+                )
+                return 1
+
+            def render_boom(*a, **k):
+                raise OSError("disk full")
+
+
+            from analyzer.context import RunContext as RealRunContext
+            from contextlib import ExitStack
+
+            def invoke(extra_patches: list, argv: list[str]) -> int:  # noqa: ANN001
+                with ExitStack() as stack:
+                    stack.enter_context(patch.object(run_module, "ROOT", root))
+                    stack.enter_context(patch.object(run_module, "load_config", return_value=config))
+                    stack.enter_context(
+                        patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False)
+                    )
+                    stack.enter_context(patch.object(run_module, "build_season_context_prompt", return_value=""))
+                    stack.enter_context(patch.object(run_module, "build_season_snapshot", return_value={}))
+                    stack.enter_context(patch.object(run_module, "load_season_snapshot", return_value=None))
+                    stack.enter_context(patch.object(run_module, "build_season_update_message", return_value=None))
+                    stack.enter_context(patch.object(run_module, "DeepSeekClient", return_value=client))
+                    stack.enter_context(patch.object(run_module, "deliver_pending_digests", side_effect=compensate))
+                    stack.enter_context(patch.object(run_module, "collect_reddit", return_value=[]))
+                    stack.enter_context(patch.object(run_module, "collect_rss", return_value=[]))
+                    stack.enter_context(patch.object(run_module, "collect_twitter", return_value=[]))
+                    stack.enter_context(
+                        patch.object(run_module, "build_output_dir", return_value=root / "output" / "fresh")
+                    )
+                    ctx = stack.enter_context(patch.object(run_module, "RunContext"))
+                    ctx.now.return_value = RealRunContext.now(24)
+                    for extra in extra_patches:
+                        stack.enter_context(extra)
+                    stack.enter_context(patch.object(run_module.sys, "argv", argv))
+                    return run_module.main()
+
+            # Pass 1: compensation succeeds, then rendering fails.
+            first = invoke(
+                [patch.object(run_module, "generate_images_for_digest", side_effect=render_boom)],
+                ["run.py", "--hours", "24", "--resume", "--push-telegram"],
+            )
+            self.assertNotEqual(first, 0, "the render failure must surface as a failure")
+
+            # The delivery fact must already be on disk: the queue is empty, so
+            # an in-memory-only record would be gone by the next process.
+            state_after_failure = load_run_state(run_dir)
+            self.assertTrue(
+                state_after_failure.has(STAGE_DELIVERED),
+                "delivery must be committed before the render step can fail",
+            )
+
+            # The persisted mark makes this run non-resumable. That is the whole
+            # defence: the queue is already empty, so an in-memory-only record
+            # would leave nothing to stop a later process resending it.
+            self.assertIsNone(
+                find_resumable_run(root, datetime.now(timezone.utc), 6),
+                "a compensated run must not be resumable again",
+            )
+
+        self.assertEqual(deliveries.count("compensate"), 1, "compensation runs once")
+        self.assertNotIn("send", deliveries, "the digest was delivered by compensation only")
+        self.assertNotIn("resend", deliveries, "no second delivery may ever happen")

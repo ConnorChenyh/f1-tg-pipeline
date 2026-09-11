@@ -92,6 +92,21 @@ def load_run_state(output_dir: Path) -> RunState | None:
         return None
 
 
+def mark_delivered(output_dir: Path) -> RunState | None:
+    """Record delivery as soon as it is known, independent of later local steps.
+
+    A compensation pass delivers the digest early in the run; if a later step
+    (image rendering, for example) fails, that fact must survive so the next
+    resume does not send the same digest again.
+    """
+    state = load_run_state(output_dir)
+    if state is None:
+        return None
+    state.mark(STAGE_DELIVERED)
+    save_run_state(output_dir, state)
+    return state
+
+
 def mark_active_run(root: Path, output_dir: Path) -> None:
     path = active_run_path(root)
     try:

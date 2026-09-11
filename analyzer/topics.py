@@ -63,6 +63,23 @@ def _coerce_heat_score(value: Any) -> int:
     return max(0, min(100, _coerce_int(value, 0)))
 
 
+def _coerce_heat_score_logged(value: Any, title: str) -> int:
+    """Coerce a heat score and record when a value could not be read.
+
+    A score coerced to 0 is usually dropped by heat_threshold, so without this
+    line the topic would vanish with no explanation. Note that a coerced topic
+    can still be re-added by the minimum-topic backfill below.
+    """
+    score = _coerce_heat_score(value)
+    if score == 0 and value not in (0, "0", None):
+        logger.warning(
+            "Topic %r had an unreadable heat_score %r; coerced to 0 (may be filtered by heat_threshold)",
+            title,
+            value,
+        )
+    return score
+
+
 def _validate_topics_payload(payload: Any) -> list[dict[str, Any]]:
     """Shape check for the topic extractor; raises ResponseShapeError to re-prompt."""
     if not isinstance(payload, dict):
@@ -83,7 +100,7 @@ def _validate_topics_payload(payload: Any) -> list[dict[str, Any]]:
         item = dict(topic)
         item["title_zh"] = title
         item.setdefault("id", f"topic_{index:02d}")
-        item["heat_score"] = _coerce_heat_score(topic.get("heat_score"))
+        item["heat_score"] = _coerce_heat_score_logged(topic.get("heat_score"), title)
         urls = topic.get("evidence_urls")
         item["evidence_urls"] = [str(url) for url in urls if url] if isinstance(urls, list) else []
         cleaned.append(item)
