@@ -83,6 +83,14 @@ class ResponseShapeError(ValueError):
     """
 
 
+class RunDeadlineExceeded(RuntimeError):
+    """The run's cumulative model-time budget is spent.
+
+    A per-request timeout bounds one call; this bounds the whole run so that
+    exhausted retries cannot keep a scheduled job hanging.
+    """
+
+
 class ModelOutputError(ValueError):
     """The model returned text that is not usable JSON.
 
@@ -166,6 +174,22 @@ class DeepSeekClient:
         )
         self.usage = TokenUsage()
         self.last_used_attempts = 0
+        max_total = float(deepseek_cfg.get("max_total_seconds", 900) or 0)
+        self._deadline = time.monotonic() + max_total if max_total > 0 else None
+
+    def deadline_remaining(self) -> float | None:
+        """Seconds left in the run budget, or None when unlimited."""
+        if self._deadline is None:
+            return None
+        return self._deadline - time.monotonic()
+
+    def _check_deadline(self) -> None:
+        remaining = self.deadline_remaining()
+        if remaining is not None and remaining <= 0:
+            self.usage.record("deadline", None, 0.0, failed=True)
+            raise RunDeadlineExceeded(
+                "model time budget exhausted for this run; aborting instead of retrying"
+            )
         # Set once the API rejects response_format so we stop asking for it.
         self._json_object_disabled = not self.force_json_object
 
@@ -244,6 +268,7 @@ class DeepSeekClient:
         repair_attempt = 0
         used_attempts = 0
 
+        self._check_deadline()
         started = time.monotonic()
         for attempt in range(attempts):
             used_attempts = attempt + 1
@@ -295,6 +320,13 @@ class DeepSeekClient:
                         self.retry_policy.backoff_sec,
                         self.retry_policy.max_backoff_sec,
                     )
+                    remaining = self.deadline_remaining()
+                    if remaining is not None and delay >= remaining:
+                        logger.warning(
+                            "Model time budget would be exceeded by the next retry (%.1fs left); giving up",
+                            max(remaining, 0.0),
+                        )
+                        break
                     logger.warning("Retrying DeepSeek call in %.1fs", delay)
                     time.sleep(delay)
 

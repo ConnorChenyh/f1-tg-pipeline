@@ -352,6 +352,10 @@ deepseek:
   # Per-request ceiling. The SDK default read timeout is 600s, which can stall
   # a scheduled run for ten minutes on one hung connection.
   timeout_sec: 120
+  # Cumulative ceiling for all model calls in one run. A per-request timeout
+  # bounds a single call; this bounds the run so exhausted retries cannot hang
+  # the scheduled job. 0 disables it.
+  max_total_seconds: 900
   fact_check_enabled: true
   final_review_enabled: true
 

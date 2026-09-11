@@ -55,7 +55,7 @@ from analyzer.topics import extract_topics
 from collectors.reddit import collect_reddit
 from collectors.rss import collect_rss
 from collectors.twitter import collect_twitter
-from generator.deepseek_client import DeepSeekClient
+from generator.deepseek_client import DeepSeekClient, RunDeadlineExceeded
 from generator.digest_writer import generate_digest, save_digest
 from generator.images import RENDER_MEASUREMENTS_FILENAME, generate_images_for_digest
 from generator.preview import generate_preview
@@ -522,14 +522,20 @@ def main() -> int:
         client = None
     else:
         client = _client_for(config)
-        topics = extract_topics(
-            client,
-            shortlisted,
-            heat_threshold,
-            run_context,
-            min_topics=digest_min_items,
-            max_topics=digest_max_items,
-        )
+        try:
+            topics = extract_topics(
+                client,
+                shortlisted,
+                heat_threshold,
+                run_context,
+                min_topics=digest_min_items,
+                max_topics=digest_max_items,
+            )
+        except RunDeadlineExceeded as exc:
+            # Clean exit rather than a traceback; nothing has been written yet
+            # for this run, so there is no partial digest to keep.
+            logging.error("Model time budget exhausted during topic extraction: %s", exc)
+            return 1
         topics = enrich_topics_with_evidence(topics, shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
         topics, skipped_by_evidence = filter_topics_by_evidence_quality(topics, config)

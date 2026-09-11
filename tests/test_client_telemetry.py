@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import unittest
 from types import SimpleNamespace
 from typing import Any
@@ -7,7 +8,13 @@ from unittest.mock import patch
 
 import httpx
 
-from generator.deepseek_client import DeepSeekClient, TokenUsage, _is_retryable
+from analyzer.net import RetryPolicy
+from generator.deepseek_client import (
+    DeepSeekClient,
+    RunDeadlineExceeded,
+    TokenUsage,
+    _is_retryable,
+)
 
 
 def _client(max_retries: int = 1) -> DeepSeekClient:
@@ -149,3 +156,160 @@ class TokenUsageUnitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunDeadlineTests(unittest.TestCase):
+    """N3: the whole run needs a ceiling, not just each request."""
+
+    def _client_with(self, max_total: float) -> DeepSeekClient:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            return DeepSeekClient(
+                {
+                    "deepseek": {
+                        "max_retries": 3,
+                        "force_json_object": False,
+                        "max_total_seconds": max_total,
+                    }
+                }
+            )
+
+    def test_zero_disables_the_budget(self) -> None:
+        client = self._client_with(0)
+        self.assertIsNone(client.deadline_remaining())
+
+    def test_a_positive_budget_reports_remaining_time(self) -> None:
+        client = self._client_with(60)
+        remaining = client.deadline_remaining()
+        self.assertIsNotNone(remaining)
+        self.assertGreater(remaining, 0)
+        self.assertLessEqual(remaining, 60)
+
+    def test_an_exhausted_budget_aborts_without_calling_the_model(self) -> None:
+        client = self._client_with(60)
+        client._deadline = 0.0  # pretend the budget is spent
+        calls = {"n": 0}
+
+        def spy(*a: Any, **k: Any) -> Any:
+            calls["n"] += 1
+            return _ok()
+
+        with patch.object(client.client.chat.completions, "create", side_effect=spy):
+            with self.assertRaises(RunDeadlineExceeded):
+                client.chat_json("m", "s", "p", stage="digest")
+
+        self.assertEqual(calls["n"], 0, "no request may be attempted once the budget is spent")
+        self.assertEqual(client.usage.to_dict()["failed_calls"], 1)
+
+    def test_retry_is_skipped_when_it_would_exceed_the_budget(self) -> None:
+        client = self._client_with(60)
+        client.retry_policy = RetryPolicy(attempts=5, backoff_sec=30.0, max_backoff_sec=30.0)
+        client._deadline = time.monotonic() + 1.0  # only a moment left
+        calls = {"n": 0}
+        slept: list[float] = []
+
+        def boom(*a: Any, **k: Any) -> Any:
+            calls["n"] += 1
+            raise httpx.ConnectError("down")
+
+        with patch.object(client.client.chat.completions, "create", side_effect=boom), \
+             patch("generator.deepseek_client.time.sleep", side_effect=slept.append):
+            with self.assertRaises(RuntimeError):
+                client.chat_json("m", "s", "p")
+
+        self.assertEqual(calls["n"], 1, "the retry must not be attempted")
+        self.assertEqual(slept, [], "must not sleep past the deadline")
+
+    def test_a_spent_budget_does_not_block_a_fresh_run(self) -> None:
+        client = self._client_with(60)
+        with patch.object(client.client.chat.completions, "create", return_value=_ok()):
+            result = client.chat_json("m", "s", "p", stage="topics")
+        self.assertEqual(result, {"ok": True})
+
+
+class DeadlineIntegrationTests(unittest.TestCase):
+    """An exhausted budget must fail the run cleanly, not traceback."""
+
+    def test_topic_extraction_deadline_fails_the_run(self) -> None:
+        from tests.harness import RunHarness, _base_config, _stub_post
+        import run as run_module
+        from datetime import datetime, timezone
+        import tempfile
+        from pathlib import Path
+
+        harness = RunHarness()
+        scripts = harness._scripts()
+        client = harness._fake_client(scripts, [])
+
+        def expired(*a: Any, **k: Any) -> Any:
+            raise RunDeadlineExceeded("budget spent")
+
+        client.chat_json = expired
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            now = datetime.now(timezone.utc)
+
+            with patch.object(run_module, "ROOT", root), \
+                 patch.object(run_module, "load_config", return_value=config), \
+                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
+                 patch.object(run_module, "collect_reddit", return_value=[]), \
+                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
+                 patch.object(run_module, "collect_twitter", return_value=[]), \
+                 patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
+                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
+                 patch.object(run_module, "build_season_snapshot", return_value={}), \
+                 patch.object(run_module, "load_season_snapshot", return_value=None), \
+                 patch.object(run_module, "build_season_update_message", return_value=None), \
+                 patch.object(run_module, "DeepSeekClient", return_value=client), \
+                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24"]):
+                from analyzer.context import RunContext as RealRunContext
+
+                ctx_cls.now.return_value = RealRunContext.now(24)
+                code = run_module.main()
+
+        self.assertEqual(code, 1, "an exhausted budget must be a clean failure")
+
+    def test_digest_deadline_fails_the_run_cleanly(self) -> None:
+        from tests.harness import RunHarness, _base_config, _stub_post, _stub_topic
+        import run as run_module
+        from datetime import datetime, timezone
+        import tempfile
+        from pathlib import Path
+
+        harness = RunHarness()
+        scripts = harness._scripts()
+        client = harness._fake_client(scripts, [])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            now = datetime.now(timezone.utc)
+
+            with patch.object(run_module, "ROOT", root), \
+                 patch.object(run_module, "load_config", return_value=config), \
+                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
+                 patch.object(run_module, "collect_reddit", return_value=[]), \
+                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
+                 patch.object(run_module, "collect_twitter", return_value=[]), \
+                 patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
+                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
+                 patch.object(run_module, "build_season_snapshot", return_value={}), \
+                 patch.object(run_module, "load_season_snapshot", return_value=None), \
+                 patch.object(run_module, "build_season_update_message", return_value=None), \
+                 patch.object(run_module, "DeepSeekClient", return_value=client), \
+                 patch.object(run_module, "extract_topics", return_value=[_stub_topic()]), \
+                 patch.object(
+                     run_module, "generate_digest", side_effect=RunDeadlineExceeded("budget spent")
+                 ), \
+                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24"]):
+                from analyzer.context import RunContext as RealRunContext
+
+                ctx_cls.now.return_value = RealRunContext.now(24)
+                code = run_module.main()
+
+        self.assertEqual(code, 1, "a spent budget during writing must fail cleanly")
