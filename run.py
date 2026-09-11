@@ -336,7 +336,11 @@ def main() -> int:
             logging.error("Telegram push failed: %s", exc)
             return 1
 
-    if args.push_telegram:
+    # Decided before anything can send: a test mode must not trigger real
+    # outbound sends, including compensating a previously queued digest.
+    test_mode = args.mock or args.dry_run or args.telegram_dry_run
+
+    if args.push_telegram and not test_mode:
         queued_before = pending_output_dirs(ROOT, config)
         delivered = deliver_pending_digests(ROOT, config)
         if delivered:
@@ -362,7 +366,7 @@ def main() -> int:
     # touch published-topic memory, prune story memory, persist a standings
     # cache, or advance the season snapshot; otherwise a throwaway run
     # suppresses real topics for the whole cooldown window.
-    persist_state = not args.mock and not args.dry_run and not args.telegram_dry_run
+    persist_state = not test_mode
 
     run_context = RunContext.now(window_hours)
     prior_state = None
@@ -666,8 +670,10 @@ def main() -> int:
                 save_season_snapshot(ROOT, config, season_snapshot)
                 logging.info("Season context snapshot updated")
         else:
-            logging.info("Test mode (%s): published-topic memory and season snapshot left untouched",
-                         "mock" if args.mock else "dry-run")
+            logging.info(
+                "Test mode (%s): published-topic memory and season snapshot left untouched",
+                "mock" if args.mock else ("dry-run" if args.dry_run else "telegram-dry-run"),
+            )
     except Exception as exc:
         logging.error("Failed to generate digest: %s", exc)
         return 1

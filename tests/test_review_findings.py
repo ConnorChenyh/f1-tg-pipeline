@@ -231,3 +231,29 @@ class R5TelegramDryRunStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class R9TestModeCompensationTests(unittest.TestCase):
+    """R9 (9.4 boundary): test modes must not trigger a real compensation send."""
+
+    def test_mock_run_does_not_compensate_the_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            (root / "output" / "pending_telegram_deliveries.json").write_text(
+                json.dumps({"deliveries": [{"output_dir": "output/2026-01-01_000000", "queued_at": "x"}]}),
+                encoding="utf-8",
+            )
+            sent: list = []
+
+            with patch.object(run_module, "ROOT", root), \
+                 patch.object(run_module, "load_config", return_value=config), \
+                 patch.object(run_module, "deliver_pending_digests", side_effect=lambda *a, **k: sent.append("compensate") or 1), \
+                 patch.object(run_module, "collect_reddit", return_value=[]), \
+                 patch.object(run_module, "collect_rss", return_value=[]), \
+                 patch.object(run_module, "collect_twitter", return_value=[]), \
+                 patch.object(run_module.sys, "argv", ["run.py", "--mock", "--push-telegram"]):
+                run_module.main()
+
+        self.assertEqual(sent, [], "a --mock run must never send queued Telegram digests")
