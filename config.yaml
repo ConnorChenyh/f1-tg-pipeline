@@ -35,6 +35,11 @@ topic_cooldowns:
         - ["belgian grand prix", "spa", "spa-francorchamps", "比利时大奖赛", "斯帕"]
         - ["preview", "schedule", "poster", "race week", "how to watch", "前瞻", "赛程", "海报", "预热"]
 
+run_state:
+  # --resume continues the most recent unfinished run instead of collecting
+  # again. Runs older than this are refused so a stale window is never published.
+  max_resume_age_hours: 6
+
 story_db:
   enabled: true
   path: output/story_memory.sqlite3
@@ -112,8 +117,14 @@ season_context:
     driver_url: "https://www.formula1.com/en/results/2026/drivers"
     team_url: "https://www.formula1.com/en/results/2026/team"
     timeout_sec: 15
+    cache_path: "output/standings_cache.json"
+    # Reuse a freshly fetched snapshot for this many seconds instead of
+    # re-scraping formula1.com on every manual rerun. 0 disables the cache.
+    cache_max_age_sec: 3600
   team_baseline:
-    as_of: "after R11 Hungarian Grand Prix, before R12 Dutch Grand Prix, 2026 summer break"
+    # as_of is regenerated from the calendar on every run; this value is only the
+    # fallback used before the first refresh attempt.
+    as_of: "configured snapshot"
     qualitative_as_of_round: 11
     source: "configured snapshot, refresh from Formula1 driver and team standings on each run when available"
     teams:

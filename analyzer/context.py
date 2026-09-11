@@ -20,6 +20,21 @@ class RunContext:
             f1_season=now.year,
         )
 
+    def at(self, generated_at: datetime, window_hours: int | None = None) -> RunContext:
+        """Rebuild the context around a specific instant.
+
+        Used by --resume so a continued run keeps the original run time and the
+        time-dependent filters stay consistent with the first attempt.
+        """
+        if generated_at.tzinfo is None:
+            generated_at = generated_at.replace(tzinfo=timezone.utc)
+        return RunContext(
+            generated_at=generated_at,
+            window_hours=self.window_hours if window_hours is None else window_hours,
+            f1_season=generated_at.year,
+            season_context=self.season_context,
+        )
+
     def with_season_context(self, season_context: str) -> RunContext:
         return RunContext(
             generated_at=self.generated_at,

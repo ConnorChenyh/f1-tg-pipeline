@@ -17,6 +17,8 @@ STATE_FILES = (
     "story_memory.sqlite3",
     "season_context_state.json",
     "pending_telegram_deliveries.json",
+    "standings_cache.json",
+    "active_run.json",
 )
 
 

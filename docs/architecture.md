@@ -196,6 +196,49 @@ splitting them into media groups of 10. The digest body is deliberately not sent
 as message text because the cover card lists the headlines and each detail card
 contains its own body copy.
 
+## Standings And Season Phase
+
+`analyzer/standings.py` reads the two configured Formula1 results pages
+(`driver_url`, `team_url`) and overwrites the in-memory `team_baseline` with the
+fetched points and positions, so the prompt the LLM receives carries current
+standings rather than the snapshot text in `config.yaml`.
+
+- Driver names are cleaned of the driver/nationality codes the page renders
+  (`Kimi Antonelli ANT ITA` becomes `Kimi Antonelli`).
+- `team_baseline.as_of` is regenerated from the configured calendar on every run
+  and is never carried over from `config.yaml`. A failed fetch still advances the
+  label, so the prompt cannot claim a stale round.
+- A successful fetch is written to `output/standings_cache.json` and reused for
+  `standings_refresh.cache_max_age_sec` seconds, so repeated manual runs do not
+  re-scrape. Set that value to `0` to disable the cache.
+- If the fetch fails, the configured snapshot is used and `source` records that.
+
+## Resume
+
+`run.py --resume` continues the most recent unfinished run instead of collecting
+again. State lives in two files:
+
+- `output/<timestamp>/run_state.json` - run id, original run time and window, and
+  the stages already completed (`collect`, `topics`, `digest`, `images`,
+  `delivered`).
+- `output/active_run.json` - a pointer to the newest run, so `--resume` does not
+  have to guess.
+
+A resumed run reuses the saved shortlist, topics and draft, so the paid DeepSeek
+calls are not repeated. It also freezes the original run time, keeping the
+time-dependent filters (history window, cooldowns, time decay) consistent with
+the first attempt. Runs older than `run_state.max_resume_age_hours` are refused
+so a stale window is never published, and a run that already reached `delivered`
+is not resumable. `--resume` is ignored together with `--mock`/`--dry-run`, since
+those modes persist nothing.
+
+## Dependencies
+
+`requirements.txt` is the human-edited direct-dependency list.
+`requirements.lock` pins every resolved package to an exact version and is what
+the Dockerfile installs, so a cold build cannot silently drift onto a new major
+version. Refresh it only as part of an intentional upgrade.
+
 ## Persistent State And Test Modes
 
 Persistent memory lives under `output/`:
@@ -204,6 +247,8 @@ Persistent memory lives under `output/`:
 - `output/story_memory.sqlite3`
 - `output/season_context_state.json`
 - `output/pending_telegram_deliveries.json`
+- `output/standings_cache.json`
+- `output/active_run.json` and `output/<timestamp>/run_state.json`
 
 `run.py` computes `persist_state = not (mock or dry_run)`. In `--mock` and
 `--dry-run` modes it does not initialise or prune the story DB, does not record

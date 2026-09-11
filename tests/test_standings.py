@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from analyzer.standings import (
     _extract_from_text,
@@ -108,3 +110,204 @@ class StandingsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DriverNameCleanupTests(unittest.TestCase):
+    """formula1.com renders 'Kimi Antonelli ANT ITA'; the codes must not leak."""
+
+    def test_strips_driver_code_and_nationality(self) -> None:
+        from analyzer.standings import _clean_driver_name
+
+        self.assertEqual(_clean_driver_name("Kimi Antonelli ANT"), "Kimi Antonelli")
+        self.assertEqual(_clean_driver_name("Kimi Antonelli ANT ITA"), "Kimi Antonelli")
+        self.assertEqual(_clean_driver_name("Max Verstappen VER NED"), "Max Verstappen")
+
+    def test_leaves_a_plain_name_alone(self) -> None:
+        from analyzer.standings import _clean_driver_name
+
+        self.assertEqual(_clean_driver_name("Kimi Antonelli"), "Kimi Antonelli")
+        self.assertEqual(_clean_driver_name("  Lewis   Hamilton  "), "Lewis Hamilton")
+
+    def test_keeps_multi_word_and_apostrophe_names(self) -> None:
+        from analyzer.standings import _clean_driver_name
+
+        self.assertEqual(_clean_driver_name("Andrea Kimi Antonelli ANT"), "Andrea Kimi Antonelli")
+        self.assertEqual(_clean_driver_name("Jean-Éric Vergne JEV FRA"), "Jean-Éric Vergne")
+
+    def test_both_parsers_agree_on_clean_names(self) -> None:
+        from analyzer.standings import _extract_from_tables
+
+        html = """
+        <table><tr><th>1</th><td>Kimi Antonelli</td><td>ANT</td><td>ITA</td><td>Mercedes</td><td>267</td></tr></table>
+        """
+        table_rows = _extract_from_tables(html)
+        text_rows = _extract_from_text(
+            "<html><body>1 Kimi Antonelli ANT ITA Mercedes 267</body></html>"
+        )
+
+        self.assertEqual([r.name for r in table_rows], ["Kimi Antonelli"])
+        self.assertEqual([r.name for r in text_rows], ["Kimi Antonelli"])
+
+
+class SeasonPhaseLabelTests(unittest.TestCase):
+    """as_of must follow the calendar instead of a hardcoded config string."""
+
+    def _season(self) -> dict:
+        return {
+            "races": [
+                {"round": 11, "name": "Hungarian Grand Prix", "start": "2026-07-24", "end": "2026-07-26"},
+                {"round": 13, "name": "Italian Grand Prix", "start": "2026-09-04", "end": "2026-09-06"},
+                {"round": 14, "name": "Spanish Grand Prix", "start": "2026-09-11", "end": "2026-09-13"},
+            ]
+        }
+
+    def test_label_tracks_the_latest_completed_race(self) -> None:
+        from analyzer.standings import _season_phase_label
+
+        label = _season_phase_label(self._season(), datetime(2026, 9, 11, tzinfo=timezone.utc))
+
+        self.assertIn("after R13 Italian Grand Prix", label)
+        self.assertNotIn("R11", label)
+        self.assertNotIn("summer break", label)
+
+    def test_label_handles_a_pre_season_date(self) -> None:
+        from analyzer.standings import _season_phase_label
+
+        label = _season_phase_label(self._season(), datetime(2026, 1, 5, tzinfo=timezone.utc))
+
+        self.assertIn("before the first race", label)
+
+    def test_snapshot_fallback_still_advances_the_phase_label(self) -> None:
+        """A failed refresh must not leave the prompt claiming an old round."""
+        from analyzer import standings as standings_module
+
+        config = {
+            "season_context": {
+                "standings_refresh": {
+                    "enabled": True,
+                    "cache_max_age_sec": 0,
+                },
+                "races": self._season()["races"],
+                "team_baseline": {"as_of": "after R11 Hungarian Grand Prix", "teams": []},
+            }
+        }
+        original = standings_module.fetch_driver_standings
+
+        def boom(_url, _timeout):
+            raise RuntimeError("network down")
+
+        try:
+            standings_module.fetch_driver_standings = boom
+            standings_module.fetch_team_standings = boom
+            refreshed = standings_module.refresh_team_baseline_from_standings(
+                config, datetime(2026, 9, 11, tzinfo=timezone.utc)
+            )
+        finally:
+            standings_module.fetch_driver_standings = original
+
+        self.assertFalse(refreshed)
+        as_of = config["season_context"]["team_baseline"]["as_of"]
+        self.assertIn("R13 Italian Grand Prix", as_of)
+        self.assertIn("configured snapshot", as_of)
+
+
+class StandingsCacheTests(unittest.TestCase):
+    def _fixtures(self):
+        from analyzer.standings import DriverStanding, TeamStanding
+
+        drivers = [DriverStanding(name="Kimi Antonelli", team="Mercedes", standing=1, points=267)]
+        teams = [TeamStanding(name="Mercedes", standing=1, points=468)]
+        return drivers, teams
+
+    def _config(self) -> dict:
+        return {
+            "season_context": {
+                "standings_refresh": {
+                    "enabled": True,
+                    "cache_path": "output/standings_cache.json",
+                    "cache_max_age_sec": 3600,
+                },
+                "races": [],
+                "team_baseline": {"teams": [{"name": "Mercedes", "constructors_points": 0}]},
+            }
+        }
+
+    def test_round_trip_and_reuse_within_the_window(self) -> None:
+        from analyzer.standings import load_standings_cache, save_standings_cache
+
+        drivers, teams = self._fixtures()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            save_standings_cache(root, self._config(), drivers, teams, now)
+
+            fresh = load_standings_cache(root, self._config(), now + timedelta(minutes=5))
+            stale = load_standings_cache(root, self._config(), now + timedelta(hours=2))
+
+        self.assertIsNotNone(fresh)
+        self.assertEqual(fresh[0][0].name, "Kimi Antonelli")
+        self.assertEqual(fresh[1][0].points, 468)
+        self.assertIsNone(stale, "a cache older than cache_max_age_sec must be ignored")
+
+    def test_cache_is_disabled_when_max_age_is_zero(self) -> None:
+        from analyzer.standings import load_standings_cache, save_standings_cache
+
+        drivers, teams = self._fixtures()
+        config = self._config()
+        config["season_context"]["standings_refresh"]["cache_max_age_sec"] = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            save_standings_cache(root, config, drivers, teams, now)
+
+            self.assertIsNone(load_standings_cache(root, config, now))
+
+    def test_corrupt_cache_is_ignored_not_fatal(self) -> None:
+        from analyzer.standings import load_standings_cache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            (root / "output" / "standings_cache.json").write_text("{not json", encoding="utf-8")
+
+            result = load_standings_cache(
+                root, self._config(), datetime(2026, 9, 11, tzinfo=timezone.utc)
+            )
+
+        self.assertIsNone(result)
+
+    def test_refresh_uses_cache_instead_of_fetching_again(self) -> None:
+        from analyzer import standings as standings_module
+        from analyzer.standings import save_standings_cache
+
+        drivers, teams = self._fixtures()
+        config = self._config()
+        calls = {"n": 0}
+
+        def fail_if_called(_url, _timeout):
+            calls["n"] += 1
+            raise AssertionError("should have used the cache")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            save_standings_cache(root, config, drivers, teams, now)
+
+            original_d, original_t = (
+                standings_module.fetch_driver_standings,
+                standings_module.fetch_team_standings,
+            )
+            try:
+                standings_module.fetch_driver_standings = fail_if_called
+                standings_module.fetch_team_standings = fail_if_called
+                refreshed = standings_module.refresh_team_baseline_from_standings(
+                    config, now + timedelta(minutes=1), root=root, persist=True
+                )
+            finally:
+                standings_module.fetch_driver_standings = original_d
+                standings_module.fetch_team_standings = original_t
+
+        self.assertTrue(refreshed)
+        self.assertEqual(calls["n"], 0, "network must not be hit when the cache is fresh")
+        self.assertEqual(config["season_context"]["team_baseline"]["teams"][0]["constructors_points"], 468)

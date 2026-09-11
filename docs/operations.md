@@ -8,8 +8,17 @@ triggers, and common troubleshooting.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock   # exact pinned versions, as used in Docker
 cp .env.example .env
+```
+
+`requirements.txt` is the human-edited direct-dependency list.
+`requirements.lock` pins every resolved package and is what the Dockerfile
+installs. After an intentional upgrade, refresh the lock:
+
+```bash
+.venv/bin/python -m pip install -U -r requirements.txt
+.venv/bin/python -m pip freeze > requirements.lock
 ```
 
 Required `.env` values:
@@ -253,6 +262,51 @@ The client re-prompts with the validation error included. If all attempts fail
 the run aborts with a `RuntimeError` naming the error kind (`schema` or
 `transport`). A `transport` error is retried; a caller error such as a bad
 request is not retried.
+
+### A run failed part way through
+
+Every run records its progress in `output/<timestamp>/run_state.json` and points
+at itself from `output/active_run.json`. Continue instead of starting over:
+
+```bash
+.venv/bin/python run.py --resume
+```
+
+The resumed run reuses the saved shortlist, topics and draft, so no new DeepSeek
+calls are made for work that already succeeded. Expected log lines:
+
+```text
+Resuming run 2026-09-11_113002 (completed stages: collect, topics, digest)
+Resume: reusing the written draft from 2026-09-11_113002
+```
+
+Runs older than `run_state.max_resume_age_hours` (default 6) are refused, and a
+run that already reached `delivered` has nothing to resume. `--resume` is ignored
+with `--mock`/`--dry-run`, which persist no state.
+
+### Standings look stale or the cache is wrong
+
+Fetched standings are stored in `output/standings_cache.json` for
+`standings_refresh.cache_max_age_sec` seconds (default 3600) so repeated manual
+runs do not re-scrape. Inspect it:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+print(json.dumps(json.loads(Path("output/standings_cache.json").read_text()), ensure_ascii=False, indent=2))
+PY
+```
+
+If the numbers are wrong or the page layout changed, the run falls back to the
+`config.yaml` snapshot and logs:
+
+```text
+Standings refresh failed; using configured team_baseline snapshot: ...
+```
+
+Set `cache_max_age_sec: 0` to always fetch, or delete the cache file to force a
+fresh read.
 
 ### Chinese text renders as boxes or garbled characters
 

@@ -31,7 +31,7 @@ Set `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` in `.env` if you want Twitter as a so
 cd f1-xhs-pipeline
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 cp .env.example .env
 ```
 
@@ -58,6 +58,9 @@ python run.py --dry-run
 # Offline end-to-end without API key
 python run.py --mock
 
+# Continue the most recent unfinished run instead of collecting again
+python run.py --resume
+
 # Push generated digest to Telegram after a full run
 python run.py --push-telegram
 
@@ -71,8 +74,17 @@ python run.py --telegram-only output/<timestamp> --telegram-dry-run
 `--mock` only validates the local pipeline path. It does not evaluate final
 Chinese copy quality because it intentionally skips DeepSeek and uses simple
 placeholder text. `--mock` and `--dry-run` are read-only with respect to
-persistent memory: they never write topic history, the story DB, or the season
-snapshot, so a throwaway run cannot suppress real topics.
+persistent memory: they never write topic history, the story DB, the standings
+cache, a resumable run pointer, or the season snapshot, so a throwaway run cannot
+suppress real topics.
+
+`--resume` continues the most recent unfinished run, reusing the saved shortlist,
+topics and draft so no DeepSeek work is repeated. It is ignored with
+`--mock`/`--dry-run`, and runs older than `run_state.max_resume_age_hours` are
+refused.
+
+Dependencies are pinned in `requirements.lock`, which is what the Dockerfile
+installs; `requirements.txt` is the human-edited direct-dependency list.
 
 `--push-telegram` delivers a single title line followed by the images. The body
 is not duplicated into the message: the cover card lists every headline and each

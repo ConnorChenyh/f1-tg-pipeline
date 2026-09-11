@@ -12,11 +12,24 @@ import yaml
 from dotenv import load_dotenv
 
 from analyzer.article_fetcher import enrich_evidence_with_articles
+from collectors.base import PostItem
 from analyzer.context import RunContext
 from analyzer.evidence import enrich_topics_with_evidence
 from analyzer.evidence_gate import filter_topics_by_evidence_quality
 from analyzer.fallback_topics import build_fallback_article_topics
 from analyzer.normalize import normalize_posts
+from analyzer.run_state import (
+    STAGE_COLLECT,
+    STAGE_DELIVERED,
+    STAGE_DIGEST,
+    STAGE_IMAGES,
+    STAGE_TOPICS,
+    RunState,
+    find_resumable_run,
+    mark_active_run,
+    parse_generated_at,
+    save_run_state,
+)
 from analyzer.score import score_posts
 from analyzer.season_context import build_season_context_prompt
 from analyzer.season_monitor import (
@@ -113,6 +126,42 @@ def mock_digest(topics: list[dict]) -> dict:
 def save_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_shortlisted_posts(output_dir: Path) -> list:
+    """Reload a saved shortlist so --resume can skip collection."""
+    path = output_dir / "shortlisted_posts.json"
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Failed to read shortlist %s: %s", path, exc)
+        return []
+    if not isinstance(payload, list):
+        return []
+    posts = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            posts.append(PostItem.from_dict(item))
+        except (KeyError, TypeError, ValueError) as exc:
+            logging.warning("Skipping malformed shortlist entry in %s: %s", path, exc)
+    return posts
+
+
+def _load_meta_json(draft_dir: Path) -> dict:
+    """Read a previous run's draft metadata, e.g. when resuming a partial run."""
+    path = draft_dir / "meta.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Failed to read %s: %s", path, exc)
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _load_image_measurements(draft_dir: Path) -> dict:
@@ -246,6 +295,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hours", type=int, default=None, help="Time window in hours")
     parser.add_argument("--dry-run", action="store_true", help="Collect and cluster only")
     parser.add_argument("--mock", action="store_true", help="Skip DeepSeek and use mock topics/drafts")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue the most recent unfinished run instead of collecting again",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument("--push-telegram", action="store_true", help="Push generated digest text/images to Telegram")
     parser.add_argument(
@@ -294,8 +348,44 @@ def main() -> int:
     digest_item_min_chars = int(digest_cfg.get("item_min_chars", 240))
     digest_item_target_chars = int(digest_cfg.get("item_target_chars", 300))
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
+    # Mock and dry runs exist to validate the pipeline path, so they must not
+    # touch published-topic memory, prune story memory, persist a standings
+    # cache, or advance the season snapshot; otherwise a throwaway run
+    # suppresses real topics for the whole cooldown window.
+    persist_state = not args.mock and not args.dry_run
+
     run_context = RunContext.now(window_hours)
-    standings_refreshed = refresh_team_baseline_from_standings(config, run_context.generated_at)
+    prior_state = None
+    output_dir = None
+    if args.resume:
+        if not persist_state:
+            logging.warning("--resume is ignored with --mock/--dry-run; those runs persist nothing")
+        else:
+            max_age_hours = float(config.get("run_state", {}).get("max_resume_age_hours", 6))
+            resumable = find_resumable_run(ROOT, run_context.generated_at, max_age_hours)
+            if resumable is None:
+                logging.info("Nothing to resume; starting a fresh run")
+            else:
+                output_dir, prior_state = resumable
+                # Freeze the original run time so time-dependent filters
+                # (history window, cooldowns, time decay) make the same
+                # decisions they would have made on the first attempt.
+                frozen_at = parse_generated_at(prior_state.generated_at)
+                if frozen_at is not None:
+                    run_context = run_context.at(frozen_at, prior_state.window_hours)
+                window_hours = prior_state.window_hours
+                logging.info(
+                    "Resuming run %s (completed stages: %s)",
+                    output_dir.name,
+                    ", ".join(prior_state.completed) or "none",
+                )
+
+    standings_refreshed = refresh_team_baseline_from_standings(
+        config,
+        run_context.generated_at,
+        root=ROOT,
+        persist=persist_state,
+    )
     run_context = run_context.with_season_context(build_season_context_prompt(config, run_context.generated_at))
     season_snapshot = build_season_snapshot(
         config,
@@ -305,36 +395,52 @@ def main() -> int:
     previous_season_snapshot = load_season_snapshot(ROOT, config)
     season_update_message = build_season_update_message(previous_season_snapshot, season_snapshot)
     run_id = run_context.generated_at.strftime("%Y-%m-%d_%H%M%S")
-    # Mock and dry runs exist to validate the pipeline path, so they must not
-    # touch published-topic memory, prune story memory, or advance the season
-    # snapshot; otherwise a throwaway run suppresses real topics for the whole
-    # cooldown window.
-    persist_state = not args.mock and not args.dry_run
     if persist_state:
         init_story_db(ROOT, config)
         prune_story_db(ROOT, config, run_context.generated_at)
 
-    output_dir = build_output_dir(ROOT)
-    logging.info("Output directory: %s", output_dir)
+    if output_dir is not None:
+        state = prior_state
+        logging.info("Output directory (resumed): %s", output_dir)
+    else:
+        state = RunState(
+            run_id=run_id,
+            generated_at=run_context.generated_at.isoformat(),
+            window_hours=window_hours,
+        )
+        output_dir = build_output_dir(ROOT)
+        if persist_state:
+            mark_active_run(ROOT, output_dir)
+        logging.info("Output directory: %s", output_dir)
+    save_run_state(output_dir, state)
 
-    posts = []
-    for collector_name, collector in (
-        ("reddit", lambda: collect_reddit(config)),
-        ("rss", lambda: collect_rss(config, window_hours)),
-        ("twitter", lambda: collect_twitter(config)),
-    ):
-        try:
-            posts.extend(collector())
-        except Exception as exc:
-            logging.warning("%s collector failed: %s", collector_name, exc)
+    if state.has(STAGE_COLLECT) and (output_dir / "shortlisted_posts.json").exists():
+        logging.info("Resume: reusing the collected shortlist from %s", output_dir.name)
+        shortlisted = load_shortlisted_posts(output_dir)
+        if not shortlisted:
+            logging.warning("Saved shortlist is empty; recollecting for this run")
+            state.completed.remove(STAGE_COLLECT)
+    else:
+        posts = []
+        for collector_name, collector in (
+            ("reddit", lambda: collect_reddit(config)),
+            ("rss", lambda: collect_rss(config, window_hours)),
+            ("twitter", lambda: collect_twitter(config)),
+        ):
+            try:
+                posts.extend(collector())
+            except Exception as exc:
+                logging.warning("%s collector failed: %s", collector_name, exc)
 
-    normalized = normalize_posts(posts, window_hours)
-    scored = score_posts(normalized)
-    save_json(output_dir / "raw_posts.json", [p.to_dict() for p in scored])
-    shortlisted = shortlist_posts(scored, config, run_context.generated_at)
-    save_json(output_dir / "shortlisted_posts.json", [p.to_dict() for p in shortlisted])
-    if persist_state:
-        record_candidates(shortlisted, ROOT, config, run_id, run_context.generated_at)
+        normalized = normalize_posts(posts, window_hours)
+        scored = score_posts(normalized)
+        save_json(output_dir / "raw_posts.json", [p.to_dict() for p in scored])
+        shortlisted = shortlist_posts(scored, config, run_context.generated_at)
+        save_json(output_dir / "shortlisted_posts.json", [p.to_dict() for p in shortlisted])
+        if persist_state:
+            record_candidates(shortlisted, ROOT, config, run_id, run_context.generated_at)
+        state.mark(STAGE_COLLECT)
+        save_run_state(output_dir, state)
 
     if not shortlisted:
         logging.error("No posts collected in the last %s hours", window_hours)
@@ -345,7 +451,18 @@ def main() -> int:
         return 0
 
     skipped_recent_topics: list[dict] = []
-    if args.mock:
+    client = None
+    if state.has(STAGE_TOPICS) and (output_dir / "topics.json").exists():
+        logging.info("Resume: reusing extracted topics from %s", output_dir.name)
+        topics = json.loads((output_dir / "topics.json").read_text(encoding="utf-8"))
+        status_path = output_dir / "topics_status.json"
+        if status_path.exists():
+            try:
+                recorded = json.loads(status_path.read_text(encoding="utf-8"))
+                skipped_recent_topics = list(recorded.get("skipped_recent_topics") or [])
+            except (OSError, json.JSONDecodeError, AttributeError) as exc:
+                logging.warning("Ignoring unreadable %s: %s", status_path, exc)
+    elif args.mock:
         topics = enrich_topics_with_evidence(mock_topics(shortlisted), shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
         client = None
@@ -399,6 +516,15 @@ def main() -> int:
         )
 
     save_json(output_dir / "topics.json", topics)
+    save_json(
+        output_dir / "topics_status.json",
+        {
+            "skipped_recent_topics": skipped_recent_topics,
+            "extracted_count": len(topics),
+        },
+    )
+    state.mark(STAGE_TOPICS)
+    save_run_state(output_dir, state)
     save_json(output_dir / "run_context.json", {
         "generated_at": run_context.generated_at.isoformat(),
         "window_hours": run_context.window_hours,
@@ -417,7 +543,13 @@ def main() -> int:
     guard_blocking_codes: list[str] = []
 
     try:
-        if args.mock:
+        if state.has(STAGE_DIGEST) and (draft_dir / "draft.json").exists():
+            logging.info("Resume: reusing the written draft from %s", output_dir.name)
+            draft = json.loads((draft_dir / "draft.json").read_text(encoding="utf-8"))
+            previous_meta = _load_meta_json(draft_dir)
+            guard_blocking_codes = list(previous_meta.get("guard_blocking_codes") or [])
+            fact_check_notes = list(previous_meta.get("fact_check_notes") or [])
+        elif args.mock:
             draft = mock_digest(digest_topics)
         else:
             draft, fact_check_notes, guard_blocking_codes = generate_digest(
@@ -434,7 +566,11 @@ def main() -> int:
                 final_review_enabled=final_review_enabled,
             )
         save_digest(draft_dir, draft, fact_check_notes or None)
+        state.mark(STAGE_DIGEST)
+        save_run_state(output_dir, state)
         image_paths = generate_images_for_digest(draft, digest_topics, draft_dir, config)
+        state.mark(STAGE_IMAGES)
+        save_run_state(output_dir, state)
         guard_blocked = bool(guard_blocking_codes)
         meta = {
             "digest_title": digest_title,
@@ -471,6 +607,13 @@ def main() -> int:
                     enqueue_pending_delivery(ROOT, config, output_dir)
                 raise
             logging.info("Telegram push result: %s", result)
+
+        # The run is finished once its outcome is known: delivered, or kept for
+        # human review because the guard rejected it. A failed push must stay
+        # resumable.
+        if state is not None and (guard_blocked or pushed_ok or not push_attempted):
+            state.mark(STAGE_DELIVERED)
+            save_run_state(output_dir, state)
 
         if persist_state:
             append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
