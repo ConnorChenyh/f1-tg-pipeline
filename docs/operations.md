@@ -313,7 +313,9 @@ It reports three distinct counts plus token totals and a `by_stage` breakdown:
 - `request_latency_sec` - summed per-request latency
 
 A prompt that degrades into retry loops shows up as `requests` far above
-`logical_calls`.
+`logical_calls`. Failed attempts are saved even when topic extraction or digest
+generation exits early; a resumed run merges its new usage with the prior meta.
+The stage map distinguishes `topics`, `digest`, `fact_check`, and `final_review`.
 
 ### Retries and timeouts
 

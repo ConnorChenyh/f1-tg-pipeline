@@ -63,6 +63,8 @@ def deliver_pending_digests(
     config: dict[str, Any],
     *,
     send: Callable[..., dict[str, Any]] = push_digest_to_telegram,
+    on_delivered: Callable[[Path], None] | None = None,
+    already_delivered: Callable[[Path], bool] | None = None,
 ) -> int:
     path = _queue_path(root, config)
     deliveries = _load_queue(path)
@@ -72,7 +74,18 @@ def deliver_pending_digests(
         output_dir = (root / entry["output_dir"]).resolve()
         try:
             output_dir.relative_to((root / "output").resolve())
+            if already_delivered is not None and already_delivered(output_dir):
+                logger.info(
+                    "Removing stale queue entry for already-delivered digest: %s",
+                    entry["output_dir"],
+                )
+                continue
             send(output_dir / "drafts" / "digest", config)
+            # Commit the delivery before removing its queue entry. If saving the
+            # queue fails afterward, the next pass can see the committed run and
+            # remove the stale entry without sending it again.
+            if on_delivered is not None:
+                on_delivered(output_dir)
             delivered += 1
             logger.info("Compensated pending Telegram digest: %s", entry["output_dir"])
         except Exception as exc:

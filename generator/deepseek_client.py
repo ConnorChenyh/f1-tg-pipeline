@@ -326,9 +326,6 @@ class DeepSeekClient:
             attempt_started = time.monotonic()
             response: Any = None
             try:
-                # The request is issued here, so a failure below means a real
-                # request was made and consumed budget.
-                request_sent = True
                 response = self._create_completion(model, system_prompt, current_prompt)
                 content = response.choices[0].message.content or ""
                 try:
@@ -338,17 +335,29 @@ class DeepSeekClient:
                     raise ModelOutputError(str(exc)) from exc
                 if validator is not None:
                     payload = validator(payload)
+                # A request may start inside the budget and return after it.
+                # Do not accept a late result as success merely because its
+                # timeout was calculated before the call began.
+                self._check_deadline()
                 self.usage.record(
                     stage,
                     getattr(response, "usage", None),
                     time.monotonic() - attempt_started,
-                    retries=attempt,
+                    retries=1 if attempt else 0,
                 )
                 self.last_used_attempts = used_attempts
                 return payload
             except RunDeadlineExceeded:
                 # Budget expiry is a decision, not a failure to retry, and must
-                # reach the caller as itself.
+                # reach the caller as itself. A late response is still a real,
+                # answered request and belongs in usage telemetry.
+                if response is not None:
+                    self.usage.record(
+                        stage,
+                        getattr(response, "usage", None),
+                        time.monotonic() - attempt_started,
+                        retries=1 if attempt else 0,
+                    )
                 raise
             except ResponseShapeError as exc:
                 last_error = exc
@@ -357,7 +366,7 @@ class DeepSeekClient:
                     stage,
                     getattr(response, "usage", None),
                     time.monotonic() - attempt_started,
-                    retries=attempt,
+                    retries=1 if attempt else 0,
                     failed=True,
                 )
                 repair_attempt += 1
@@ -382,7 +391,7 @@ class DeepSeekClient:
                     stage,
                     getattr(response, "usage", None),
                     time.monotonic() - attempt_started,
-                    retries=attempt,
+                    retries=1 if attempt else 0,
                     failed=True,
                 )
                 logger.warning(

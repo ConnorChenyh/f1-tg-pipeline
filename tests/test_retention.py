@@ -164,6 +164,27 @@ class RetentionTests(unittest.TestCase):
 
             self.assertEqual(removed, [], "an unexpected shape must not be read as 'no reference'")
 
+    def test_active_run_missing_output_dir_deletes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_run(root, "2026-08-01_120000", 41)
+            (root / "active_run.json").write_text("{}", encoding="utf-8")
+
+            removed = prune_output_runs(root, _config(keep_min_runs=0), NOW)
+
+            self.assertEqual(removed, [], "a partial active-run pointer is not reliable")
+            self.assertTrue((root / "2026-08-01_120000").exists())
+
+    def test_pending_queue_missing_deliveries_deletes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_run(root, "2026-08-01_120000", 41)
+            (root / "pending_telegram_deliveries.json").write_text("{}", encoding="utf-8")
+
+            removed = prune_output_runs(root, _config(keep_min_runs=0), NOW)
+
+            self.assertEqual(removed, [], "a partial queue is not a confirmed empty queue")
+
     def test_custom_pending_queue_path_is_respected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

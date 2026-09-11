@@ -4,6 +4,8 @@ import socket
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from analyzer.url_safety import (
     UnsafeUrlError,
     assert_fetchable_url,
@@ -141,6 +143,64 @@ class HelperTests(unittest.TestCase):
 
 
 class FetchIntegrationTests(unittest.TestCase):
+    def test_plain_http_pool_does_not_receive_tls_only_options(self) -> None:
+        from analyzer.article_fetcher import _PinnedAddressAdapter
+
+        adapter = _PinnedAddressAdapter("example.com", "93.184.216.34")
+        http_kwargs = adapter._connection_kwargs("example.com", "http", {})
+        https_kwargs = adapter._connection_kwargs("example.com", "https", {})
+
+        self.assertNotIn("assert_hostname", http_kwargs)
+        self.assertNotIn("server_hostname", http_kwargs)
+        self.assertEqual(https_kwargs["assert_hostname"], "example.com")
+        self.assertEqual(https_kwargs["server_hostname"], "example.com")
+
+        # Constructing the actual HTTP connection used to fail before dialing.
+        pool = adapter.poolmanager.connection_from_host("93.184.216.34", 80, "http", http_kwargs)
+        self.assertIsNotNone(pool._new_conn())
+
+    def test_pinned_adapter_preserves_the_original_host_header(self) -> None:
+        from analyzer.article_fetcher import _PinnedAddressAdapter
+
+        adapter = _PinnedAddressAdapter("example.com", "93.184.216.34")
+        request = requests.Request("GET", "https://example.com:8443/article").prepare()
+        with patch.object(requests.adapters.HTTPAdapter, "send", return_value=object()):
+            adapter.send(request)
+
+        self.assertEqual(request.headers["Host"], "example.com:8443")
+
+    def test_fetch_session_does_not_trust_environment_proxies(self) -> None:
+        from analyzer import article_fetcher
+
+        class FakeResponse:
+            status_code = 200
+            headers = {}
+
+        class FakeSession:
+            def __init__(self) -> None:
+                self.trust_env = True
+                self.checked_during_get = None
+
+            def mount(self, *_args) -> None:
+                pass
+
+            def get(self, *_args, **_kwargs):
+                self.checked_during_get = self.trust_env
+                return FakeResponse()
+
+            def close(self) -> None:
+                pass
+
+        session = FakeSession()
+        with _resolves_to("93.184.216.34"), patch.object(
+            article_fetcher.requests, "Session", return_value=session
+        ):
+            article_fetcher._fetch_following_safe_redirects(
+                "https://example.com/article", 5, {}, None, "article"
+            )
+
+        self.assertFalse(session.checked_during_get, "environment proxies must be disabled")
+
     def test_fetch_article_content_refuses_private_urls(self) -> None:
         from analyzer.article_fetcher import fetch_article_content
 

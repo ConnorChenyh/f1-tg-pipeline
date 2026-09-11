@@ -118,6 +118,20 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(usage["failed_requests"], 2)
         self.assertEqual(usage["logical_calls"], 1)
         self.assertEqual(usage["retries"], 1, "one retry was consumed")
+
+    def test_three_failed_requests_contain_only_two_retries(self) -> None:
+        client = _client(max_retries=2)
+        with patch.object(
+            client.client.chat.completions,
+            "create",
+            side_effect=httpx.ConnectError("down"),
+        ), patch("generator.deepseek_client.time.sleep"):
+            with self.assertRaises(RuntimeError):
+                client.chat_json("m", "s", "p", stage="topics")
+
+        usage = client.usage.to_dict()
+        self.assertEqual(usage["requests"], 3)
+        self.assertEqual(usage["retries"], 2)
         self.assertIn("topics", usage["by_stage"])
 
     def test_reported_attempts_match_the_real_request_count(self) -> None:
@@ -476,3 +490,21 @@ class BudgetEnforcedInsideLoopTests(unittest.TestCase):
             )
         with patch.object(client.client.chat.completions, "create", return_value=_ok()):
             self.assertEqual(client.chat_json("m", "s", "p", stage="topics"), {"ok": True})
+
+    def test_response_returning_after_deadline_is_rejected(self) -> None:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            client = DeepSeekClient(
+                {"deepseek": {"max_retries": 0, "force_json_object": False, "max_total_seconds": 0}}
+            )
+        client._deadline = 1.0
+
+        # attempt start, pre-request check, timeout calculation, post-response
+        # check, and telemetry timestamp after the deadline exception.
+        clock = iter((0.0, 0.0, 0.0, 2.0, 2.0))
+        with patch.object(client.client.chat.completions, "create", return_value=_ok()), patch(
+            "generator.deepseek_client.time.monotonic", side_effect=lambda: next(clock)
+        ):
+            with self.assertRaises(RunDeadlineExceeded):
+                client.chat_json("m", "s", "p", stage="digest")
+
+        self.assertEqual(client.usage.to_dict()["requests"], 1)

@@ -266,12 +266,14 @@ because conflating them hides retry behaviour:
 - `failed_requests` - requests that errored
 
 Tokens are attributed only to responses that were received. `run.py` writes the
-result into `drafts/digest/meta.json` as `model_usage`, so the cost of a run is
-inspectable instead of invisible.
+result into `drafts/digest/meta.json` as `model_usage`, including failure paths,
+and merges it with earlier attempts when a run resumes. Fact-check and final
+review use separate stage names, so their traffic does not collapse into
+`unknown`.
 
 `deepseek.max_total_seconds` caps the whole run's model time, checked before every
-request rather than once per call, and the per-request timeout is clamped to the
-remaining budget so an attempt cannot overshoot it.
+request and again before accepting a response. The per-request timeout is clamped
+to the remaining budget, and a response arriving after the deadline is rejected.
 
 ## Fetch Safety
 
@@ -285,9 +287,11 @@ per hop. `fetch_article_content` returns `fetch_status: "unsafe"` for these.
 
 Validation is bound to the connection: `article_fetcher` resolves and checks the
 address itself, then dials **that** address (via a pinned-address HTTP adapter)
-while keeping the original hostname for TLS verification. Checking a name and then
-letting the transport resolve it again would leave a window in which the second
-answer differs from the one that was checked.
+while preserving the original HTTP Host header and, for HTTPS, hostname/SNI
+verification. The dedicated Session does not trust environment proxies because a
+proxy would otherwise resolve the untrusted hostname again. Checking a name and
+then letting either the transport or a proxy resolve it again would leave a window
+in which the second answer differs from the one that was checked.
 
 ## Output Retention
 

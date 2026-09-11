@@ -59,7 +59,12 @@ def fact_check_draft(
         evidence_json=json.dumps(evidence, ensure_ascii=False),
         draft_json=json.dumps(draft, ensure_ascii=False),
     )
-    checked = client.chat_json(client.model_writer, FACT_CHECK_SYSTEM_PROMPT, user_prompt)
+    checked = client.chat_json(
+        client.model_writer,
+        FACT_CHECK_SYSTEM_PROMPT,
+        user_prompt,
+        stage="fact_check",
+    )
     if not isinstance(checked, dict):
         raise ValueError("fact-check response is not an object")
 
@@ -157,7 +162,12 @@ def fact_check_digest(
         draft_json=json.dumps(draft, ensure_ascii=False),
         quality_issues_json=json.dumps(quality_issues or [], ensure_ascii=False),
     )
-    checked = client.chat_json(client.model_writer, FACT_CHECK_SYSTEM_PROMPT, user_prompt)
+    checked = client.chat_json(
+        client.model_writer,
+        FACT_CHECK_SYSTEM_PROMPT,
+        user_prompt,
+        stage="fact_check",
+    )
     if not isinstance(checked, dict):
         raise ValueError("digest fact-check response is not an object")
 

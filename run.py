@@ -27,6 +27,7 @@ from analyzer.run_state import (
     STAGE_TOPICS,
     RunState,
     find_resumable_run,
+    load_run_state,
     mark_active_run,
     mark_delivered,
     parse_generated_at,
@@ -169,6 +170,35 @@ def _collect_usage(client: object) -> dict:
         return {}
 
 
+def _delivery_is_committed(output_dir: Path) -> bool:
+    state = load_run_state(output_dir)
+    return state is not None and state.has(STAGE_DELIVERED)
+
+
+def _commit_compensated_delivery(output_dir: Path) -> None:
+    if mark_delivered(output_dir) is None:
+        raise OSError(f"compensated run has no usable state: {output_dir}")
+
+
+def _merge_model_usage(previous: object, current: object) -> dict:
+    """Add persisted and current-run usage without dropping stage detail."""
+    left = previous if isinstance(previous, dict) else {}
+    right = current if isinstance(current, dict) else {}
+    merged: dict = {}
+    for key in left.keys() | right.keys():
+        old_value = left.get(key)
+        new_value = right.get(key)
+        if isinstance(old_value, dict) or isinstance(new_value, dict):
+            merged[key] = _merge_model_usage(old_value, new_value)
+        elif isinstance(old_value, (int, float)) and isinstance(new_value, (int, float)):
+            merged[key] = old_value + new_value
+        elif new_value is not None:
+            merged[key] = new_value
+        else:
+            merged[key] = old_value
+    return merged
+
+
 def _load_meta_json(draft_dir: Path) -> dict:
     """Read a previous run's draft metadata, e.g. when resuming a partial run."""
     path = draft_dir / "meta.json"
@@ -180,6 +210,16 @@ def _load_meta_json(draft_dir: Path) -> dict:
         logging.warning("Failed to read %s: %s", path, exc)
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _persist_model_usage(draft_dir: Path, client: object) -> None:
+    """Keep model telemetry even when a topic or digest stage fails."""
+    current = _collect_usage(client)
+    if not current:
+        return
+    meta = _load_meta_json(draft_dir)
+    meta["model_usage"] = _merge_model_usage(meta.get("model_usage"), current)
+    save_json(draft_dir / "meta.json", meta)
 
 
 def _load_image_measurements(draft_dir: Path) -> dict:
@@ -370,7 +410,12 @@ def main() -> int:
     if args.push_telegram and not test_mode:
         queued_before = pending_output_dirs(ROOT, config)
         if queued_before:
-            delivered = deliver_pending_digests(ROOT, config)
+            delivered = deliver_pending_digests(
+                ROOT,
+                config,
+                on_delivered=_commit_compensated_delivery,
+                already_delivered=_delivery_is_committed,
+            )
             if delivered:
                 logging.info("Telegram compensation completed for %d pending digest(s)", delivered)
         # Record the set so a resumed run can tell that its own digest was just
@@ -520,6 +565,7 @@ def main() -> int:
 
     skipped_recent_topics: list[dict] = []
     client = None
+    draft_dir = output_dir / "drafts" / "digest"
     reused_topics = state.has(STAGE_TOPICS) and (output_dir / "topics.json").exists()
     if reused_topics:
         logging.info("Resume: reusing extracted topics from %s", output_dir.name)
@@ -547,9 +593,12 @@ def main() -> int:
                 max_topics=digest_max_items,
             )
         except RunDeadlineExceeded as exc:
-            # Clean exit rather than a traceback; nothing has been written yet
-            # for this run, so there is no partial digest to keep.
+            _persist_model_usage(draft_dir, client)
             logging.error("Model time budget exhausted during topic extraction: %s", exc)
+            return 1
+        except Exception as exc:
+            _persist_model_usage(draft_dir, client)
+            logging.error("Failed to extract topics: %s", exc)
             return 1
         topics = enrich_topics_with_evidence(topics, shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
@@ -613,15 +662,16 @@ def main() -> int:
     # Cap topics used in digest
     digest_topics = topics[:digest_max_items]
     effective_min_items = min(digest_min_items, len(digest_topics))
-    draft_dir = output_dir / "drafts" / "digest"
     fact_check_notes: list[str] = []
     guard_blocking_codes: list[str] = []
+    previous_meta = _load_meta_json(draft_dir)
+    previous_model_usage = previous_meta.get("model_usage")
+    usage_persisted = False
 
     try:
         if state.has(STAGE_DIGEST) and (draft_dir / "draft.json").exists():
             logging.info("Resume: reusing the written draft from %s", output_dir.name)
             draft = json.loads((draft_dir / "draft.json").read_text(encoding="utf-8"))
-            previous_meta = _load_meta_json(draft_dir)
             guard_blocking_codes = list(previous_meta.get("guard_blocking_codes") or [])
             fact_check_notes = list(previous_meta.get("fact_check_notes") or [])
         elif args.mock:
@@ -656,7 +706,10 @@ def main() -> int:
                 "fact_check_notes": fact_check_notes,
                 "guard_blocking_codes": guard_blocking_codes,
                 "guard_blocked": guard_blocked,
-                "model_usage": _collect_usage(client),
+                "model_usage": _merge_model_usage(
+                    previous_model_usage,
+                    _collect_usage(client),
+                ),
                 "run_context": {
                     "generated_at": run_context.generated_at.isoformat(),
                     "f1_season": run_context.f1_season,
@@ -667,6 +720,7 @@ def main() -> int:
         # Write the quality verdict before rendering: if image generation fails,
         # a resumed run must still know this draft was rejected.
         save_json(draft_dir / "meta.json", _base_meta())
+        usage_persisted = True
         state.mark(STAGE_DIGEST)
         save_run_state(output_dir, state)
 
@@ -739,6 +793,8 @@ def main() -> int:
                 "mock" if args.mock else ("dry-run" if args.dry_run else "telegram-dry-run"),
             )
     except Exception as exc:
+        if not usage_persisted:
+            _persist_model_usage(draft_dir, client)
         logging.error("Failed to generate digest: %s", exc)
         return 1
 

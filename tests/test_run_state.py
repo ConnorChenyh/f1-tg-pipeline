@@ -406,6 +406,59 @@ class TelemetryInMetaTests(unittest.TestCase):
         self.assertEqual(sorted(usage["by_stage"]), ["digest", "topics"])
         self.assertGreater(usage["request_latency_sec"], 0)
 
+    def test_persisted_usage_is_merged_with_a_resumed_client(self) -> None:
+        previous = {
+            "logical_calls": 1,
+            "requests": 2,
+            "failed_requests": 1,
+            "retries": 1,
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+            "request_latency_sec": 2.0,
+            "by_stage": {"topics": {"requests": 2, "failed_requests": 1}},
+        }
+        current = {
+            "logical_calls": 1,
+            "requests": 1,
+            "failed_requests": 0,
+            "retries": 0,
+            "prompt_tokens": 300,
+            "completion_tokens": 60,
+            "total_tokens": 360,
+            "request_latency_sec": 3.0,
+            "by_stage": {"digest": {"requests": 1, "failed_requests": 0}},
+        }
+
+        merged = run_module._merge_model_usage(previous, current)
+
+        self.assertEqual(merged["logical_calls"], 2)
+        self.assertEqual(merged["requests"], 3)
+        self.assertEqual(merged["failed_requests"], 1)
+        self.assertEqual(merged["total_tokens"], 480)
+        self.assertEqual(sorted(merged["by_stage"]), ["digest", "topics"])
+
+    def test_failure_usage_is_written_without_discarding_existing_meta(self) -> None:
+        from generator.deepseek_client import TokenUsage
+
+        with tempfile.TemporaryDirectory() as tmp:
+            draft_dir = Path(tmp) / "drafts" / "digest"
+            draft_dir.mkdir(parents=True)
+            (draft_dir / "meta.json").write_text(
+                json.dumps({"guard_blocked": False, "model_usage": {"requests": 1}}),
+                encoding="utf-8",
+            )
+            client = SimpleNamespace(usage=TokenUsage())
+            client.usage.begin_call("digest")
+            client.usage.record("digest", None, 0.5, failed=True)
+
+            run_module._persist_model_usage(draft_dir, client)
+
+            meta = json.loads((draft_dir / "meta.json").read_text(encoding="utf-8"))
+            self.assertFalse(meta["guard_blocked"])
+            self.assertEqual(meta["model_usage"]["requests"], 2)
+            self.assertEqual(meta["model_usage"]["failed_requests"], 1)
+
 
 from types import SimpleNamespace  # noqa: E402  (used by the test above)
 from tests.harness import RunHarness  # noqa: E402

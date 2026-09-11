@@ -102,14 +102,35 @@ class _PinnedAddressAdapter(requests.adapters.HTTPAdapter):
             return self._pinned_address
         return host
 
+    @staticmethod
+    def _connection_kwargs(
+        host: str,
+        scheme: str | None,
+        pool_kwargs: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Keep TLS hostname settings off plain HTTP connection pools."""
+        result = dict(pool_kwargs or {})
+        if (scheme or "").lower() == "https":
+            result.setdefault("assert_hostname", host)
+            result.setdefault("server_hostname", host)
+        return result
+
     def send(self, request, **kwargs):  # type: ignore[override]
         original = self.poolmanager.connection_from_host
 
+        # The pool connects to an IP address, so urllib3 would otherwise emit
+        # that address as Host. Preserve the hostname (and any explicit port)
+        # used by the article URL for virtual hosting.
+        parsed = urlparse(request.url)
+        hostname = parsed.hostname or self._pinned_host
+        default_port = 443 if parsed.scheme == "https" else 80
+        host_header = hostname
+        if parsed.port is not None and parsed.port != default_port:
+            host_header = f"{hostname}:{parsed.port}"
+        request.headers["Host"] = host_header
+
         def pinned(host, port=None, scheme=None, pool_kwargs=None):
-            kwargs2 = dict(pool_kwargs or {})
-            # Keep the real name for certificate verification.
-            kwargs2.setdefault("assert_hostname", host)
-            kwargs2.setdefault("server_hostname", host)
+            kwargs2 = self._connection_kwargs(host, scheme, pool_kwargs)
             return original(self._resolve(host, port or 0), port, scheme, kwargs2)
 
         self.poolmanager.connection_from_host = pinned  # type: ignore[assignment]
@@ -138,6 +159,9 @@ def _fetch_following_safe_redirects(
             # changed DNS answer cannot redirect the connection inward.
             checked_url, addresses = resolve_and_validate(target)
             session = requests.Session()
+            # Environment proxies would bypass the direct pool patched by the
+            # pinned adapter and let the proxy resolve the untrusted hostname.
+            session.trust_env = False
             parsed = urlparse(checked_url)
             adapter = _PinnedAddressAdapter(
                 (parsed.hostname or "").lower(), addresses[0], pool_maxsize=1

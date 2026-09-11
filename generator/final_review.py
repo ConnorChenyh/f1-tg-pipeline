@@ -103,7 +103,12 @@ def final_review_digest(
         draft_json=json.dumps(draft, ensure_ascii=False),
         quality_issues_json=json.dumps(quality_issues, ensure_ascii=False),
     )
-    reviewed = client.chat_json(client.model_writer, FINAL_REVIEW_SYSTEM_PROMPT, user_prompt)
+    reviewed = client.chat_json(
+        client.model_writer,
+        FINAL_REVIEW_SYSTEM_PROMPT,
+        user_prompt,
+        stage="final_review",
+    )
     if not isinstance(reviewed, dict):
         raise ValueError("final review response is not an object")
 

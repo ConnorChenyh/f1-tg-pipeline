@@ -84,11 +84,15 @@ def _referenced_runs(
             state.problems.append(f"{pending_path}: {type(exc).__name__}")
             payload = None
         if payload is not None:
-            if not isinstance(payload, dict) or not isinstance(payload.get("deliveries", []), list):
+            if (
+                not isinstance(payload, dict)
+                or "deliveries" not in payload
+                or not isinstance(payload.get("deliveries"), list)
+            ):
                 state.reliable = False
                 state.problems.append(f"{pending_path}: unexpected shape")
             else:
-                for entry in payload.get("deliveries", []):
+                for entry in payload["deliveries"]:
                     if not isinstance(entry, dict) or not entry.get("output_dir"):
                         state.reliable = False
                         state.problems.append(f"{pending_path}: malformed entry")
@@ -104,11 +108,15 @@ def _referenced_runs(
             state.problems.append(f"{active_path}: {type(exc).__name__}")
             payload = None
         if payload is not None:
-            if not isinstance(payload, dict):
+            if (
+                not isinstance(payload, dict)
+                or not isinstance(payload.get("output_dir"), str)
+                or not payload["output_dir"].strip()
+            ):
                 state.reliable = False
                 state.problems.append(f"{active_path}: unexpected shape")
             else:
-                state.add(payload.get("output_dir"))
+                state.add(payload["output_dir"])
 
     return state
 

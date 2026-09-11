@@ -66,13 +66,24 @@ def active_run_path(root: Path) -> Path:
     return root / "output" / ACTIVE_RUN_FILENAME
 
 
-def save_run_state(output_dir: Path, state: RunState) -> None:
+def save_run_state(output_dir: Path, state: RunState) -> bool:
     path = run_state_path(output_dir)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(state.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.write_text(
+            json.dumps(state.as_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temp_path.replace(path)
+        return True
     except OSError as exc:
         logger.warning("Could not write run state %s: %s", path, exc)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
 
 
 def load_run_state(output_dir: Path) -> RunState | None:
@@ -103,7 +114,8 @@ def mark_delivered(output_dir: Path) -> RunState | None:
     if state is None:
         return None
     state.mark(STAGE_DELIVERED)
-    save_run_state(output_dir, state)
+    if not save_run_state(output_dir, state):
+        raise OSError(f"could not persist delivered state for {output_dir}")
     return state
 
 

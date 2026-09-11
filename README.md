@@ -170,15 +170,20 @@ starts, then it will continue with the daily schedule.
   runs by default (`deepseek.fact_check_enabled`), followed by a separate final
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,
   semantic clarity, terminology, and last-mile fact confirmation.
-- LLM responses are contract-checked, and the handling differs per field. Being
-  precise matters here because "coerced" is not "repaired":
-  - **Re-prompted (repair)** with the specific validation error: a missing or
-    empty `items` array, a `topics` payload that is not a non-empty array, a
-    topic without `title_zh`, and `hashtags`/`sources` that are present but not
-    arrays of strings.
-  - **Coerced in place, no re-prompt**: a numeric `content`/`headline`/`hook` is
-    converted to text, and `hashtags`/`sources` that are `null` become `[]`.
-    `heat_score` that cannot be read as a number becomes `0`.
+- LLM responses are contract-checked, and the handling differs by stage as well
+  as by field. Being precise matters here because "coerced" is not "repaired":
+  - **Initial topic/digest response:** a missing or empty `items` array, a
+    `topics` payload that is not a non-empty array, a topic without `title_zh`,
+    or `hashtags`/`sources` that are present but not arrays of strings triggers
+    a re-prompt with the specific validation error.
+  - **Fact-check/final-review response:** these are rewrites of an already-valid
+    draft. Text-like values and list entries are coerced to strings; scalar
+    `hashtags`/`sources` become one-item arrays. If the resulting draft is still
+    unusable, the previous valid draft is kept instead of issuing another
+    review-stage prompt.
+  - **All stages:** numeric `content`/`headline`/`hook` values are converted to
+    text, `hashtags`/`sources` that are `null` become `[]`, and an unreadable
+    `heat_score` becomes `0`.
   - Nothing is guessed from a value that is absent where it is required: a
     missing `headline`/`content` is refused.
 - The fact-check and final-review passes rewrite the draft, so their output is
