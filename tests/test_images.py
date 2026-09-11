@@ -98,3 +98,22 @@ class DigestImageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_rendered_chars_matches_lines_actually_drawn(self) -> None:
+        """R8: the reported figure must not count lines the draw loop skipped."""
+        content = "很长的正文内容。" * 300
+
+        _, measure = render_item_card_with_measure("一", "标题", content, 1080, 710)
+
+        # Reproduction from the GPT-6 review: at this size the draw loop skips a
+        # line, and the old code still counted it as rendered.
+        self.assertGreaterEqual(measure["dropped_lines"], 1)
+        self.assertTrue(measure["truncated"])
+        self.assertLess(measure["rendered_chars"], measure["source_chars"])
+
+    def test_truncated_flag_tracks_dropped_lines(self) -> None:
+        short = "短正文。"
+        _, measure = render_item_card_with_measure("一", "标题", short, 1080, 1440)
+
+        self.assertEqual(measure["dropped_lines"], 0)
+        self.assertFalse(measure["truncated"])

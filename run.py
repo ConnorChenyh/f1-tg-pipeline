@@ -58,7 +58,11 @@ from generator.digest_writer import generate_digest, save_digest
 from generator.images import RENDER_MEASUREMENTS_FILENAME, generate_images_for_digest
 from generator.preview import generate_preview
 from publisher.telegram import TelegramConfigError, push_digest_to_telegram
-from publisher.telegram_delivery_queue import deliver_pending_digests, enqueue_pending_delivery
+from publisher.telegram_delivery_queue import (
+    deliver_pending_digests,
+    enqueue_pending_delivery,
+    pending_output_dirs,
+)
 from publisher.telegram_text import send_text_to_telegram
 
 ROOT = Path(__file__).resolve().parent
@@ -333,9 +337,15 @@ def main() -> int:
             return 1
 
     if args.push_telegram:
+        queued_before = pending_output_dirs(ROOT, config)
         delivered = deliver_pending_digests(ROOT, config)
         if delivered:
             logging.info("Telegram compensation completed for %d pending digest(s)", delivered)
+        # Record the set so a resumed run can tell that its own digest was just
+        # compensated and must not be sent a second time.
+        compensated_dirs = queued_before - pending_output_dirs(ROOT, config)
+    else:
+        compensated_dirs = set()
 
     window_hours = args.hours if args.hours is not None else int(config.get("window_hours", 12))
     heat_threshold = int(config.get("heat_threshold", 60))
@@ -352,7 +362,7 @@ def main() -> int:
     # touch published-topic memory, prune story memory, persist a standings
     # cache, or advance the season snapshot; otherwise a throwaway run
     # suppresses real topics for the whole cooldown window.
-    persist_state = not args.mock and not args.dry_run
+    persist_state = not args.mock and not args.dry_run and not args.telegram_dry_run
 
     run_context = RunContext.now(window_hours)
     prior_state = None
@@ -452,7 +462,8 @@ def main() -> int:
 
     skipped_recent_topics: list[dict] = []
     client = None
-    if state.has(STAGE_TOPICS) and (output_dir / "topics.json").exists():
+    reused_topics = state.has(STAGE_TOPICS) and (output_dir / "topics.json").exists()
+    if reused_topics:
         logging.info("Resume: reusing extracted topics from %s", output_dir.name)
         topics = json.loads((output_dir / "topics.json").read_text(encoding="utf-8"))
         status_path = output_dir / "topics_status.json"
@@ -462,6 +473,10 @@ def main() -> int:
                 skipped_recent_topics = list(recorded.get("skipped_recent_topics") or [])
             except (OSError, json.JSONDecodeError, AttributeError) as exc:
                 logging.warning("Ignoring unreadable %s: %s", status_path, exc)
+        if not args.mock:
+            # Topic extraction was skipped, but the digest still has to be
+            # written, so the client must exist on this path too.
+            client = DeepSeekClient(config)
     elif args.mock:
         topics = enrich_topics_with_evidence(mock_topics(shortlisted), shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
@@ -566,39 +581,53 @@ def main() -> int:
                 final_review_enabled=final_review_enabled,
             )
         save_digest(draft_dir, draft, fact_check_notes or None)
+        guard_blocked = bool(guard_blocking_codes)
+
+        def _base_meta() -> dict:
+            return {
+                "digest_title": digest_title,
+                "topics": digest_topics,
+                "skipped_recent_topics": skipped_recent_topics,
+                "images": [],
+                "image_measurements": {},
+                "fact_check_notes": fact_check_notes,
+                "guard_blocking_codes": guard_blocking_codes,
+                "guard_blocked": guard_blocked,
+                "run_context": {
+                    "generated_at": run_context.generated_at.isoformat(),
+                    "f1_season": run_context.f1_season,
+                    "window_hours": run_context.window_hours,
+                },
+            }
+
+        # Write the quality verdict before rendering: if image generation fails,
+        # a resumed run must still know this draft was rejected.
+        save_json(draft_dir / "meta.json", _base_meta())
         state.mark(STAGE_DIGEST)
         save_run_state(output_dir, state)
+
         image_paths = generate_images_for_digest(draft, digest_topics, draft_dir, config)
         state.mark(STAGE_IMAGES)
         save_run_state(output_dir, state)
-        guard_blocked = bool(guard_blocking_codes)
-        meta = {
-            "digest_title": digest_title,
-            "topics": digest_topics,
-            "skipped_recent_topics": skipped_recent_topics,
-            "images": image_paths,
-            "image_measurements": _load_image_measurements(draft_dir),
-            "fact_check_notes": fact_check_notes,
-            "guard_blocking_codes": guard_blocking_codes,
-            "guard_blocked": guard_blocked,
-            "run_context": {
-                "generated_at": run_context.generated_at.isoformat(),
-                "f1_season": run_context.f1_season,
-                "window_hours": run_context.window_hours,
-            },
-        }
+
+        meta = _base_meta()
+        meta["images"] = image_paths
+        meta["image_measurements"] = _load_image_measurements(draft_dir)
         save_json(draft_dir / "meta.json", meta)
         logging.info("Generated digest at %s", draft_dir)
 
-        push_attempted = False
         pushed_ok = False
         if guard_blocked:
             logging.error(
                 "Quality guard rejected the draft; saved for human review and skipped delivery: %s",
                 ", ".join(guard_blocking_codes),
             )
+        elif f"output/{output_dir.name}" in compensated_dirs:
+            # The queued digest for this run was already delivered by the
+            # compensation pass above; sending it again would double-post.
+            logging.info("Digest for %s was already delivered by compensation", output_dir.name)
+            pushed_ok = True
         elif args.push_telegram:
-            push_attempted = True
             try:
                 result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
                 pushed_ok = True
@@ -611,29 +640,29 @@ def main() -> int:
         # The run is finished once its outcome is known: delivered, or kept for
         # human review because the guard rejected it. A failed push must stay
         # resumable.
-        if state is not None and (guard_blocked or pushed_ok or not push_attempted):
+        if state is not None and (guard_blocked or pushed_ok or not args.push_telegram):
             state.mark(STAGE_DELIVERED)
             save_run_state(output_dir, state)
 
         if persist_state:
             append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
             record_published_topics(digest_topics, ROOT, config, run_context.generated_at)
-            # Only advance the season snapshot once the digest that carries the
-            # same context has actually reached Telegram, so a deferred run does
-            # not silently swallow the update.
-            digest_delivered = pushed_ok or not push_attempted
+            # The season snapshot describes the same context the digest was built
+            # with, so it only advances once that digest reached Telegram. A
+            # guard-rejected digest never reaches the reader, so it must not
+            # consume the update either.
+            snapshot_can_advance = pushed_ok
             if season_update_message:
-                if args.push_telegram and digest_delivered:
+                if snapshot_can_advance:
                     try:
                         send_text_to_telegram(season_update_message, config)
                         logging.info("Season context update sent to Telegram")
                     except Exception as exc:
-                        digest_delivered = False
+                        snapshot_can_advance = False
                         logging.warning("Season context Telegram update failed; will retry: %s", exc)
                 else:
-                    digest_delivered = False
                     logging.info("Season context update pending until a delivered Telegram run")
-            if monitor_enabled(config) and digest_delivered:
+            if monitor_enabled(config) and snapshot_can_advance:
                 save_season_snapshot(ROOT, config, season_snapshot)
                 logging.info("Season context snapshot updated")
         else:

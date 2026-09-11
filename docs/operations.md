@@ -247,8 +247,12 @@ Image layout truncated 1 item(s) that did not fit one card: slide_02.png (191/24
 
 Check `drafts/digest/render_measurements.json` (also copied into `meta.json` as
 `image_measurements`). `rendered_chars` below `source_chars` means content was
-dropped to fit. Reduce `digest.item_max_chars`, or raise the font-search floor in
-`generator/images.py`.
+dropped to fit; `dropped_lines` counts the lines the draw loop skipped.
+`generator/images.py` searches font sizes from large to small (34 down to 22).
+
+To reduce truncation, either shorten the item (`digest.item_max_chars`), give the
+body more room, or **lower** the smallest searched size. Raising the floor makes
+the minimum font larger and therefore truncates more, not less.
 
 ### LLM returned a malformed response
 

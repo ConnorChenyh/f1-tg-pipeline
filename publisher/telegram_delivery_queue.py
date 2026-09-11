@@ -42,6 +42,11 @@ def _save_queue(path: Path, deliveries: list[dict[str, str]]) -> None:
     temp_path.replace(path)
 
 
+def pending_output_dirs(root: Path, config: dict[str, Any]) -> set[str]:
+    """Output directories still waiting to be delivered, as root-relative paths."""
+    return {str(entry["output_dir"]) for entry in _load_queue(_queue_path(root, config))}
+
+
 def enqueue_pending_delivery(root: Path, config: dict[str, Any], output_dir: Path) -> None:
     relative_output_dir = output_dir.resolve().relative_to(root.resolve())
     entry = {"output_dir": str(relative_output_dir), "queued_at": datetime.now(timezone.utc).isoformat()}

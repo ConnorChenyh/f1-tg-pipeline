@@ -87,9 +87,58 @@ def _validate_digest_payload(payload: Any) -> dict[str, Any]:
         if not isinstance(item, dict):
             raise ResponseShapeError(f"items[{index}] must be an object")
         for key in ("headline", "content"):
-            if not str(item.get(key) or "").strip():
+            value = item.get(key)
+            if value is None or not str(value).strip():
                 raise ResponseShapeError(f"items[{index}].{key} is required and must be non-empty")
+            # Downstream rendering assumes text; coerce here so a numeric reply
+            # cannot pass validation and then crash digest_to_markdown.
+            item[key] = str(value)
+
+    for index, item in enumerate(items, start=1):
+        ordinal = item.get("ordinal")
+        if ordinal is not None and not isinstance(ordinal, str):
+            item["ordinal"] = str(ordinal)
+
+    hashtags = payload.get("hashtags")
+    if hashtags is not None and not isinstance(hashtags, list):
+        raise ResponseShapeError("'hashtags' must be a JSON array when present")
+    sources = payload.get("sources")
+    if sources is not None and not isinstance(sources, list):
+        raise ResponseShapeError("'sources' must be a JSON array when present")
     return payload
+
+
+def _coerce_reviewed_draft(draft: Any) -> dict[str, Any]:
+    """Re-apply the contract after a review stage rewrote the draft.
+
+    fact_check_digest and final_review_digest return model output that is only
+    checked for being a dict, so a review pass could otherwise hand downstream
+    code a payload the writer's validator would have rejected.
+    """
+    if not isinstance(draft, dict):
+        raise ResponseShapeError(f"reviewed draft must be an object, got {type(draft).__name__}")
+    repaired = dict(draft)
+    items = repaired.get("items")
+    if not isinstance(items, list) or not items:
+        raise ResponseShapeError("reviewed draft must keep a non-empty 'items' array")
+    clean_items = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ResponseShapeError(f"reviewed items[{index}] must be an object")
+        entry = dict(item)
+        for key in ("headline", "content"):
+            value = entry.get(key)
+            if value is None or not str(value).strip():
+                raise ResponseShapeError(f"reviewed items[{index}].{key} must be non-empty")
+            entry[key] = str(value)
+        if entry.get("ordinal") is not None:
+            entry["ordinal"] = str(entry["ordinal"])
+        clean_items.append(entry)
+    repaired["items"] = clean_items
+    for key in ("hashtags", "sources"):
+        if repaired.get(key) is not None and not isinstance(repaired[key], list):
+            repaired[key] = [str(repaired[key])]
+    return repaired
 
 
 def generate_digest(
@@ -152,6 +201,7 @@ def generate_digest(
             grounding=grounding,
             quality_issues=issue_dicts(quality_issues),
         )
+        draft = _coerce_reviewed_draft(draft)
 
     review_notes: list[str] = []
     if final_review_enabled:
@@ -172,6 +222,7 @@ def generate_digest(
             grounding=grounding,
             quality_issues=issue_dicts(review_quality_issues),
         )
+        draft = _coerce_reviewed_draft(draft)
 
     final_quality_issues = validate_digest(
         draft,

@@ -169,9 +169,13 @@ starts, then it will continue with the daily schedule.
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,
   semantic clarity, terminology, and last-mile fact confirmation.
 - LLM responses are contract-checked. A response with valid JSON but the wrong
-  shape (missing `items`, empty `topics`, non-numeric `heat_score`) triggers a
-  repair re-prompt that includes the specific validation error, rather than a
-  blind repeat of the same request.
+  shape (missing `items`, empty `topics`, a non-string headline/content) triggers
+  a repair re-prompt that includes the specific validation error, rather than a
+  blind repeat of the same request. The fact-check and final-review passes are
+  re-validated too, since they rewrite the draft.
+- A `heat_score` that cannot be read as a number is **not** repaired: it is
+  coerced to `0`, logged, and then dropped by `heat_threshold`. Inspect
+  `topics.json` and the log if a topic disappears unexpectedly.
 - If the deterministic quality guard still rejects the draft after review, the
   run **saves the draft anyway** and records `guard_blocked` plus
   `guard_blocking_codes` in `meta.json`. Delivery is skipped and no season

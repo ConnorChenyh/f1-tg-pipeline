@@ -185,3 +185,97 @@ class ExtractTopicsResilienceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewedDraftContractTests(unittest.TestCase):
+    """R6: a review pass must not be able to smuggle in a broken shape."""
+
+    def test_numeric_content_is_coerced_not_passed_through(self) -> None:
+        payload = {"items": [{"ordinal": "一", "headline": "标题", "content": 123}]}
+
+        result = _validate_digest_payload(payload)
+
+        self.assertEqual(result["items"][0]["content"], "123")
+
+    def test_review_rewrite_is_revalidated(self) -> None:
+        from generator.digest_writer import _coerce_reviewed_draft
+
+        with self.assertRaises(ResponseShapeError):
+            _coerce_reviewed_draft({"items": [None]})
+
+        with self.assertRaises(ResponseShapeError):
+            _coerce_reviewed_draft({"items": []})
+
+        with self.assertRaises(ResponseShapeError):
+            _coerce_reviewed_draft("not a dict")
+
+    def test_review_rewrite_coerces_consumed_types(self) -> None:
+        from generator.digest_writer import _coerce_reviewed_draft
+
+        result = _coerce_reviewed_draft(
+            {
+                "items": [{"ordinal": 1, "headline": "标题", "content": 456}],
+                "hashtags": "#F1",
+                "sources": "https://example.com/a",
+            }
+        )
+
+        self.assertEqual(result["items"][0]["ordinal"], "1")
+        self.assertEqual(result["items"][0]["content"], "456")
+        self.assertEqual(result["hashtags"], ["#F1"])
+        self.assertEqual(result["sources"], ["https://example.com/a"])
+
+    def test_reviewed_draft_survives_markdown_rendering(self) -> None:
+        from generator.digest_writer import _coerce_reviewed_draft, digest_to_markdown
+
+        result = _coerce_reviewed_draft(
+            {"items": [{"ordinal": 1, "headline": 2, "content": 3}]}
+        )
+
+        markdown = digest_to_markdown(result)
+        self.assertIn("3", markdown)
+
+    def test_hashtags_must_be_a_list_when_present(self) -> None:
+        with self.assertRaises(ResponseShapeError):
+            _validate_digest_payload(
+                {
+                    "items": [{"ordinal": "一", "headline": "标题", "content": "正文"}],
+                    "hashtags": "#F1",
+                }
+            )
+
+
+class MalformedJsonRetryTests(unittest.TestCase):
+    """R7: unusable JSON is the model's output, so it is worth asking again."""
+
+    def test_malformed_json_is_retried_and_can_recover(self) -> None:
+        client, completions = _client(['{"items":', '{"ok": true}'])
+
+        result = client.chat_json("model", "system", "p")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(completions.prompts), 2, "the second reply must be used")
+
+    def test_malformed_json_raises_as_an_output_error(self) -> None:
+        client, _ = _client(["not json at all", "still not json"])
+
+        with self.assertRaises(RuntimeError) as ctx:
+            client.chat_json("model", "system", "p")
+
+        self.assertIn("model output", str(ctx.exception))
+        self.assertNotIn("transport", str(ctx.exception))
+
+    def test_true_caller_errors_still_fail_fast(self) -> None:
+        client, _ = _client(["{}"])
+        calls = {"n": 0}
+
+        def boom(**kwargs: Any) -> Any:
+            calls["n"] += 1
+            raise ValueError("invalid request: unknown parameter")
+
+        client.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=boom)))
+
+        with self.assertRaises(RuntimeError):
+            client.chat_json("model", "system", "p")
+
+        self.assertEqual(calls["n"], 1)

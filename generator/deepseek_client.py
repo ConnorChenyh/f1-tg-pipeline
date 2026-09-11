@@ -22,6 +22,15 @@ class ResponseShapeError(ValueError):
     """
 
 
+class ModelOutputError(ValueError):
+    """The model returned text that is not usable JSON.
+
+    Distinct from ResponseShapeError: the contract was never reached, so there is
+    nothing to repair against. It is still the model's output, so it is worth
+    asking again rather than failing the run outright.
+    """
+
+
 def _json_object_unsupported(exc: Exception) -> bool:
     text = str(exc).lower()
     return "response_format" in text or "json_object" in text
@@ -29,6 +38,8 @@ def _json_object_unsupported(exc: Exception) -> bool:
 
 def _is_retryable(exc: Exception) -> bool:
     """Network/rate-limit errors are worth repeating; caller errors are not."""
+    if isinstance(exc, ModelOutputError):
+        return True
     name = type(exc).__name__.lower()
     if any(marker in name for marker in ("timeout", "connection", "ratelimit", "internalserver", "apierror")):
         return True
@@ -136,7 +147,11 @@ class DeepSeekClient:
             try:
                 response = self._create_completion(model, system_prompt, current_prompt)
                 content = response.choices[0].message.content or ""
-                payload = self._extract_json(content)
+                try:
+                    payload = self._extract_json(content)
+                except ValueError as exc:
+                    # Retryable: the model produced something unusable.
+                    raise ModelOutputError(str(exc)) from exc
                 if validator is not None:
                     return validator(payload)
                 return payload
@@ -153,7 +168,9 @@ class DeepSeekClient:
                 )
             except Exception as exc:
                 last_error = exc
-                last_error_kind = "transport"
+                # Distinguish "the model gave us junk" from "the call itself
+                # failed", because only the former means the provider answered.
+                last_error_kind = "model output" if isinstance(exc, ModelOutputError) else "transport"
                 logger.warning(
                     "DeepSeek call failed (attempt %d/%d): %s",
                     used_attempts,

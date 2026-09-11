@@ -207,22 +207,27 @@ def render_item_card_with_measure(
 
     y = body_top
     advance = _line_advance(draw, chosen_font, chosen_spacing)
+    drawn_lines: list[str] = []
     for line in chosen_lines:
         if y + advance > body_bottom:
             break
         draw.text((margin_x, y), line, font=chosen_font, fill="#202026")
+        drawn_lines.append(line)
         y += advance
 
     draw.text((margin_x, height - 58), footer_label, font=_load_font(24), fill="#DADAE0")
 
     # Compare on whitespace-stripped text: wrapping legitimately drops spaces at
-    # line breaks, and counting them would make the loss signal noisy.
+    # line breaks, and counting them would make the loss signal noisy. Only the
+    # lines actually drawn are counted, so the figure matches the rendered card.
     source_chars = len(re.sub(r"\s+", "", text))
-    rendered_chars = len(re.sub(r"\s+", "", "".join(chosen_lines).rstrip("…")))
+    rendered_chars = len(re.sub(r"\s+", "", "".join(drawn_lines).rstrip("…")))
+    dropped_lines = len(chosen_lines) - len(drawn_lines)
     measure = {
         "source_chars": source_chars,
         "rendered_chars": min(rendered_chars, source_chars),
-        "truncated": bool(truncated),
+        "truncated": bool(truncated) or dropped_lines > 0,
+        "dropped_lines": dropped_lines,
         "font_size": getattr(chosen_font, "size", None),
     }
     return img, measure
