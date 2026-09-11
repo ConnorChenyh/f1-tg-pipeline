@@ -24,8 +24,8 @@ class DeepSeekClient:
             api_key=api_key,
             base_url=deepseek_cfg.get("base_url", "https://api.deepseek.com/v1"),
         )
-        self.model_topics = deepseek_cfg.get("model_topics", "deepseek-v4-pro")
-        self.model_writer = deepseek_cfg.get("model_writer", "deepseek-v4-pro")
+        self.model_topics = deepseek_cfg.get("model_topics", "deepseek-flash")
+        self.model_writer = deepseek_cfg.get("model_writer", "deepseek-flash")
         self.max_retries = int(deepseek_cfg.get("max_retries", 1))
         self.temperature = float(deepseek_cfg.get("temperature", 0.2))
 
