@@ -12,104 +12,16 @@ from unittest.mock import patch
 import run as run_module
 from generator.images import RENDER_MEASUREMENTS_FILENAME
 
-STATE_FILES = (
-    "topic_history.json",
-    "story_memory.sqlite3",
-    "season_context_state.json",
-    "pending_telegram_deliveries.json",
-    "standings_cache.json",
-    "active_run.json",
+from tests.harness import (  # noqa: E402
+    MISSING,
+    STATE_FILES,
+    _base_config,
+    _changed_state,
+    _hashes,
+    _published_state,
+    _stub_post,
+    _stub_topic,
 )
-
-
-def _published_state(root: Path) -> tuple[list, int]:
-    """(topic_history entries, published_topics rows) — what "published" means."""
-    import sqlite3
-
-    history_path = root / "output" / "topic_history.json"
-    history = json.loads(history_path.read_text(encoding="utf-8")) if history_path.exists() else []
-
-    db_path = root / "output" / "story_memory.sqlite3"
-    rows = 0
-    if db_path.exists():
-        with sqlite3.connect(db_path) as conn:
-            try:
-                rows = conn.execute("SELECT COUNT(*) FROM published_topics").fetchone()[0]
-            except sqlite3.OperationalError:
-                rows = 0
-    return history, rows
-
-
-MISSING = "<absent>"
-
-
-def _hashes(root: Path) -> dict[str, str]:
-    """Map every watched state file to its hash, recording absence explicitly.
-
-    A newly created state file must show up as a difference, so absence is
-    encoded rather than skipped.
-    """
-    digests: dict[str, str] = {}
-    for name in STATE_FILES:
-        path = root / "output" / name
-        digests[name] = hashlib.sha1(path.read_bytes()).hexdigest() if path.exists() else MISSING
-    return digests
-
-
-def _changed_state(root: Path, before: dict[str, str]) -> list[str]:
-    return sorted(name for name, digest in _hashes(root).items() if before.get(name) != digest)
-
-
-def _base_config(root: Path) -> dict:
-    return {
-        "window_hours": 24,
-        "heat_threshold": 55,
-        "digest": {"title": "围场过去24H新闻", "min_items": 1, "max_items": 5},
-        "topic_history": {"enabled": True, "dedupe_days": 7, "path": "output/topic_history.json"},
-        "story_db": {"enabled": True, "path": "output/story_memory.sqlite3", "retention_days": 30},
-        "season_context": {"enabled": True, "monitor": {"enabled": True, "state_path": "output/season_context_state.json"}},
-        "shortlist": {"enabled": True, "limit": 80},
-        "article_fetch": {"enabled": False, "delay_sec": 0},
-        "telegram": {"pending_deliveries_path": "output/pending_telegram_deliveries.json"},
-        "deepseek": {"fact_check_enabled": False, "final_review_enabled": False},
-    }
-
-
-def _stub_post(now: datetime):
-    from collectors.base import PostItem
-
-    return PostItem(
-        source="rss",
-        text="Ferrari brings a revised floor to the Spanish Grand Prix weekend.",
-        title="Ferrari floor update",
-        url="https://www.motorsport.com/f1/news/example",
-        created_at=now,
-        likes=10,
-        replies=1,
-        retweets=0,
-        raw_score=5.0,
-    )
-
-
-def _stub_topic() -> dict:
-    return {
-        "id": "topic_01",
-        "title_zh": "法拉利西班牙站底板升级",
-        "summary": "法拉利带来新底板。",
-        "heat_score": 80,
-        "evidence_urls": ["https://www.motorsport.com/f1/news/example"],
-        "evidence_posts": [
-            {
-                "url": "https://www.motorsport.com/f1/news/example",
-                "source": "rss",
-                "title": "Ferrari floor update",
-                "text": "Ferrari brings a revised floor.",
-                "created_at": "",
-                "fetch_status": "skipped",
-                "article_content": "",
-            }
-        ],
-    }
 
 
 class RunStateIsolationTests(unittest.TestCase):
@@ -282,7 +194,7 @@ class GenerateDigestGuardTests(unittest.TestCase):
             client = DeepSeekClient({"deepseek": {"max_retries": 1, "force_json_object": False}})
 
         payloads = [json.dumps(digest_payload)]
-        client.chat_json = lambda model, system, user, validator=None: json.loads(payloads.pop(0))
+        client.chat_json = lambda model, system, user, validator=None, stage="unknown": json.loads(payloads.pop(0))
         return client
 
     def _run(self, draft: dict):
@@ -384,7 +296,7 @@ class FullPathWithStubLLMTests(unittest.TestCase):
 
             prompts: list[str] = []
 
-            def fake_chat_json(model, system, user, validator=None):
+            def fake_chat_json(model, system, user, validator=None, stage="unknown"):
                 prompts.append(user)
                 payload = scripts["topics"] if '"topics"' in user else scripts["digest"]
                 return validator(json.loads(json.dumps(payload))) if validator else payload
@@ -436,3 +348,61 @@ class FullPathWithStubLLMTests(unittest.TestCase):
             self.assertEqual(len(measurements["items"]), 1)
 
             self.assertEqual(_hashes(real_root), real_before, "test wrote into the real repository")
+
+
+class TelemetryInMetaTests(unittest.TestCase):
+    """N2: a run must record what the model calls cost and how long they took."""
+
+    def test_model_usage_lands_in_meta_json(self) -> None:
+        helper = RunHarness()
+        scripts = helper._scripts()
+        calls: list = []
+        client = helper._fake_client(scripts, calls)
+
+        # Attach a usage record the way a real client would.
+        from generator.deepseek_client import TokenUsage
+
+        client.usage = TokenUsage()
+        client.usage.record("topics", SimpleNamespace(prompt_tokens=900, completion_tokens=150), 2.5)
+        client.usage.record("digest", SimpleNamespace(prompt_tokens=3000, completion_tokens=600), 7.5)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "output").mkdir(parents=True)
+            config = _base_config(root)
+            now = datetime.now(timezone.utc)
+
+            with patch.object(run_module, "ROOT", root), \
+                 patch.object(run_module, "load_config", return_value=config), \
+                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
+                 patch.object(run_module, "collect_reddit", return_value=[]), \
+                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
+                 patch.object(run_module, "collect_twitter", return_value=[]), \
+                 patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
+                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
+                 patch.object(run_module, "build_season_snapshot", return_value={}), \
+                 patch.object(run_module, "load_season_snapshot", return_value=None), \
+                 patch.object(run_module, "build_season_update_message", return_value=None), \
+                 patch.object(run_module, "DeepSeekClient", return_value=client), \
+                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24"]):
+                from analyzer.context import RunContext as RealRunContext
+
+                ctx_cls.now.return_value = RealRunContext.now(24)
+                code = run_module.main()
+
+            meta = json.loads(
+                (root / "output" / "run1" / "drafts" / "digest" / "meta.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(code, 0)
+        self.assertIn("model_usage", meta, "meta.json must carry the run's model cost")
+        usage = meta["model_usage"]
+        self.assertEqual(usage["total_tokens"], 4650)
+        self.assertEqual(usage["calls"], 2)
+        self.assertEqual(sorted(usage["by_stage"]), ["digest", "topics"])
+        self.assertGreater(usage["latency_sec"], 0)
+
+
+from types import SimpleNamespace  # noqa: E402  (used by the test above)
+from tests.harness import RunHarness  # noqa: E402

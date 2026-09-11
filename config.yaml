@@ -35,6 +35,14 @@ topic_cooldowns:
         - ["belgian grand prix", "spa", "spa-francorchamps", "比利时大奖赛", "斯帕"]
         - ["preview", "schedule", "poster", "race week", "how to watch", "前瞻", "赛程", "海报", "预热"]
 
+output_retention:
+  enabled: true
+  # Delete pipeline run directories older than this, but never one referenced by
+  # output/pending_telegram_deliveries.json or output/active_run.json, and never
+  # fewer than keep_min_runs. Non-pipeline folders are left untouched.
+  keep_days: 14
+  keep_min_runs: 7
+
 run_state:
   # --resume continues the most recent unfinished run instead of collecting
   # again. Runs older than this are refused so a stale window is never published.
@@ -117,6 +125,10 @@ season_context:
     driver_url: "https://www.formula1.com/en/results/2026/drivers"
     team_url: "https://www.formula1.com/en/results/2026/team"
     timeout_sec: 15
+    retry:
+      attempts: 3
+      backoff_sec: 1.0
+      max_backoff_sec: 15.0
     cache_path: "output/standings_cache.json"
     # Reuse a freshly fetched snapshot for this many seconds instead of
     # re-scraping formula1.com on every manual rerun. 0 disables the cache.
@@ -332,7 +344,14 @@ deepseek:
   model_topics: deepseek-flash
   model_writer: deepseek-flash
   temperature: 0.2
+  # Outer retry attempts beyond the first. The OpenAI SDK's own retry loop is
+  # disabled so this is the only retry layer and the attempt count is real.
   max_retries: 1
+  retry_backoff_sec: 1.0
+  retry_max_backoff_sec: 30.0
+  # Per-request ceiling. The SDK default read timeout is 600s, which can stall
+  # a scheduled run for ten minutes on one hung connection.
+  timeout_sec: 120
   fact_check_enabled: true
   final_review_enabled: true
 
@@ -346,6 +365,11 @@ article_fetch:
   timeout_sec: 15
   max_chars: 3500
   delay_sec: 1.0
+  # Bounded retries with jittered backoff for full-text fetching.
+  retry:
+    attempts: 3
+    backoff_sec: 1.0
+    max_backoff_sec: 15.0
 
 telegram:
   timeout_sec: 30

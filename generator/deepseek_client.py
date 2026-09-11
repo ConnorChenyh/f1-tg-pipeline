@@ -4,14 +4,75 @@ import json
 import logging
 import os
 import re
+import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from openai import OpenAI
 
+from analyzer.net import RetryPolicy, backoff_delay
+
 logger = logging.getLogger(__name__)
 
 JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
+
+
+@dataclass
+class TokenUsage:
+    """Accumulated model usage for one run, including failed calls."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    calls: int = 0
+    failed_calls: int = 0
+    retries: int = 0
+    latency_sec: float = 0.0
+    _by_stage: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    def record(
+        self,
+        stage: str,
+        usage: Any,
+        latency_sec: float,
+        retries: int = 0,
+        failed: bool = False,
+    ) -> None:
+        prompt = int(getattr(usage, "prompt_tokens", 0) or 0) if usage is not None else 0
+        completion = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.latency_sec += latency_sec
+        self.retries += retries
+        if failed:
+            self.failed_calls += 1
+        else:
+            self.calls += 1
+        entry = self._by_stage.setdefault(stage, {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "latency_sec": 0.0})
+        entry["calls"] += 1
+        entry["prompt_tokens"] += prompt
+        entry["completion_tokens"] += completion
+        entry["latency_sec"] += latency_sec
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "calls": self.calls,
+            "failed_calls": self.failed_calls,
+            "retries": self.retries,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.prompt_tokens + self.completion_tokens,
+            "latency_sec": round(self.latency_sec, 2),
+            "by_stage": {
+                stage: {
+                    "calls": int(values["calls"]),
+                    "prompt_tokens": int(values["prompt_tokens"]),
+                    "completion_tokens": int(values["completion_tokens"]),
+                    "latency_sec": round(values["latency_sec"], 2),
+                }
+                for stage, values in sorted(self._by_stage.items())
+            },
+        }
 
 
 class ResponseShapeError(ValueError):
@@ -37,15 +98,43 @@ def _json_object_unsupported(exc: Exception) -> bool:
 
 
 def _is_retryable(exc: Exception) -> bool:
-    """Network/rate-limit errors are worth repeating; caller errors are not."""
+    """Network/rate-limit errors are worth repeating; caller errors are not.
+
+    Checked by class rather than by name: the SDK raises APIConnectionError for a
+    broken connection, but a raised httpx transport error can also reach here,
+    and name matching alone misclassified it as a permanent caller error.
+    """
     if isinstance(exc, ModelOutputError):
         return True
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - httpx is an openai dependency
+        httpx = None  # type: ignore[assignment]
+    if httpx is not None and isinstance(
+        exc, (httpx.TransportError, httpx.TimeoutException, httpx.RemoteProtocolError)
+    ):
+        return True
+    try:
+        import openai
+    except ImportError:  # pragma: no cover
+        openai = None  # type: ignore[assignment]
+    if openai is not None:
+        if isinstance(exc, getattr(openai, "APIConnectionError", ())):
+            return True
+        if isinstance(exc, getattr(openai, "APITimeoutError", ())):
+            return True
+        if isinstance(exc, getattr(openai, "RateLimitError", ())):
+            return True
+        if isinstance(exc, getattr(openai, "InternalServerError", ())):
+            return True
+
     name = type(exc).__name__.lower()
-    if any(marker in name for marker in ("timeout", "connection", "ratelimit", "internalserver", "apierror")):
+    if "ratelimit" in name or "internalserver" in name or "timeout" in name:
         return True
     status = getattr(exc, "status_code", None)
     if isinstance(status, int):
         return status in {408, 409, 429} or status >= 500
+    # A plain ValueError here means the request itself was malformed.
     return False
 
 
@@ -56,15 +145,27 @@ class DeepSeekClient:
         if not api_key:
             raise ValueError("DEEPSEEK_API_KEY is not set")
 
+        # max_retries=0 is deliberate: the SDK would otherwise retry twice
+        # underneath this client's own retry loop, turning one logical call into
+        # up to six requests and hiding the real attempt count.
         self.client = OpenAI(
             api_key=api_key,
             base_url=deepseek_cfg.get("base_url", "https://api.deepseek.com/v1"),
+            max_retries=0,
+            timeout=float(deepseek_cfg.get("timeout_sec", 120)),
         )
         self.model_topics = deepseek_cfg.get("model_topics", "deepseek-flash")
         self.model_writer = deepseek_cfg.get("model_writer", "deepseek-flash")
         self.max_retries = int(deepseek_cfg.get("max_retries", 1))
         self.temperature = float(deepseek_cfg.get("temperature", 0.2))
         self.force_json_object = bool(deepseek_cfg.get("force_json_object", True))
+        self.retry_policy = RetryPolicy(
+            attempts=self.max_retries + 1,
+            backoff_sec=float(deepseek_cfg.get("retry_backoff_sec", 1.0)),
+            max_backoff_sec=float(deepseek_cfg.get("retry_max_backoff_sec", 30.0)),
+        )
+        self.usage = TokenUsage()
+        self.last_used_attempts = 0
         # Set once the API rejects response_format so we stop asking for it.
         self._json_object_disabled = not self.force_json_object
 
@@ -128,6 +229,7 @@ class DeepSeekClient:
         system_prompt: str,
         user_prompt: str,
         validator: Callable[[Any], Any] | None = None,
+        stage: str = "unknown",
     ) -> Any:
         """Call the model and return parsed JSON.
 
@@ -142,10 +244,17 @@ class DeepSeekClient:
         repair_attempt = 0
         used_attempts = 0
 
+        started = time.monotonic()
         for attempt in range(attempts):
             used_attempts = attempt + 1
             try:
                 response = self._create_completion(model, system_prompt, current_prompt)
+                self.usage.record(
+                    stage,
+                    getattr(response, "usage", None),
+                    time.monotonic() - started,
+                    retries=attempt,
+                )
                 content = response.choices[0].message.content or ""
                 try:
                     payload = self._extract_json(content)
@@ -180,7 +289,17 @@ class DeepSeekClient:
                 if not _is_retryable(exc):
                     logger.warning("Non-retryable DeepSeek error; giving up early")
                     break
+                if used_attempts < attempts:
+                    delay = backoff_delay(
+                        used_attempts,
+                        self.retry_policy.backoff_sec,
+                        self.retry_policy.max_backoff_sec,
+                    )
+                    logger.warning("Retrying DeepSeek call in %.1fs", delay)
+                    time.sleep(delay)
 
+        self.usage.record(stage, None, time.monotonic() - started, retries=used_attempts - 1, failed=True)
+        self.last_used_attempts = used_attempts
         raise RuntimeError(
             f"DeepSeek request failed after {used_attempts} attempt(s) "
             f"({last_error_kind} error): {last_error}"

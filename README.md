@@ -99,6 +99,8 @@ Each run creates `output/<timestamp>/` with:
 - `shortlisted_posts.json` - deterministic candidate shortlist sent to topic extraction
 - `topics.json` - hot topics used in the digest
 - `drafts/digest/` - single roundup: `draft.md`, `draft.json`, `images/*.png`
+- `drafts/digest/meta.json` - includes `model_usage`: tokens, latency, retries
+  and failed calls per stage, so the cost of a run is inspectable
 - `drafts/digest/render_measurements.json` - per-slide `source_chars` vs
   `rendered_chars` plus a `truncated` flag, so silent text loss on a card is visible
 - `preview.html` - local review page with copy button
@@ -196,6 +198,12 @@ starts, then it will continue with the daily schedule.
   obvious semantic compression such as turning separate hillclimb/balcony actions
   into “driving onto the balcony”.
 - Source articles are fetched and read before summarization when URLs are article pages (`article_fetch.enabled`).
+  URLs are validated first (scheme, private/loopback/metadata addresses, DNS resolution and every
+  redirect hop), so a link from Reddit or RSS content cannot reach the host's own network.
+- Standings and article fetches retry with bounded, jittered backoff. The OpenAI SDK's own retry
+  loop is disabled so the configured attempt budget is the real one.
+- Old run directories are pruned after `output_retention.keep_days`, but never while a run is
+  referenced by the pending-delivery queue or the active-run pointer.
 - Telegram push is optional. Create a bot with BotFather, send `/start` to the
   bot, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then use
   `--push-telegram` or `--telegram-only`.

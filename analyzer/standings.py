@@ -11,6 +11,8 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup
 
+from analyzer.net import RetryPolicy, request_with_retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,17 +130,26 @@ def _extract_from_text(html: str) -> list[DriverStanding]:
     return standings
 
 
-def fetch_driver_standings(url: str = DRIVER_PAGE_URL, timeout_sec: int = 15) -> list[DriverStanding]:
-    response = requests.get(
-        url,
-        timeout=timeout_sec,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        },
+def _standings_request(url: str, timeout_sec: int, policy: RetryPolicy | None = None):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    return request_with_retry(
+        lambda: requests.get(url, timeout=timeout_sec, headers=headers),
+        method="standings",
+        policy=policy,
     )
+
+
+def fetch_driver_standings(
+    url: str = DRIVER_PAGE_URL,
+    timeout_sec: int = 15,
+    policy: RetryPolicy | None = None,
+) -> list[DriverStanding]:
+    response = _standings_request(url, timeout_sec, policy)
     response.raise_for_status()
     standings = _extract_from_tables(response.text)
     if not standings:
@@ -184,17 +195,12 @@ def _extract_team_standings_from_text(html: str) -> list[TeamStanding]:
     ]
 
 
-def fetch_team_standings(url: str = TEAM_PAGE_URL, timeout_sec: int = 15) -> list[TeamStanding]:
-    response = requests.get(
-        url,
-        timeout=timeout_sec,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-        },
-    )
+def fetch_team_standings(
+    url: str = TEAM_PAGE_URL,
+    timeout_sec: int = 15,
+    policy: RetryPolicy | None = None,
+) -> list[TeamStanding]:
+    response = _standings_request(url, timeout_sec, policy)
     response.raise_for_status()
     standings = _extract_team_standings_from_tables(response.text)
     if not standings:
@@ -326,6 +332,7 @@ def refresh_team_baseline_from_standings(
     driver_url = standings_cfg.get("driver_url", DRIVER_PAGE_URL)
     team_url = standings_cfg.get("team_url", TEAM_PAGE_URL)
     timeout_sec = int(standings_cfg.get("timeout_sec", 15))
+    policy = RetryPolicy.from_config(standings_cfg.get("retry"))
 
     cached = load_standings_cache(root, config, now) if root is not None else None
     if cached is not None:
@@ -333,8 +340,8 @@ def refresh_team_baseline_from_standings(
         source = "live Formula1 driver and team standings (cached)"
     else:
         try:
-            driver_standings = fetch_driver_standings(str(driver_url), timeout_sec)
-            team_standings = fetch_team_standings(str(team_url), timeout_sec)
+            driver_standings = fetch_driver_standings(str(driver_url), timeout_sec, policy)
+            team_standings = fetch_team_standings(str(team_url), timeout_sec, policy)
         except Exception as exc:
             logger.warning("Standings refresh failed; using configured team_baseline snapshot: %s", exc)
             # Still refresh the phase label so the prompt never claims a stale

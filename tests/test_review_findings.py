@@ -25,7 +25,7 @@ from analyzer.run_state import (
     mark_active_run,
     save_run_state,
 )
-from tests.test_resume import ResumeIntegrationTests
+from tests.harness import RunHarness
 from tests.test_run_state import _base_config, _stub_post, _stub_topic
 
 
@@ -33,7 +33,7 @@ class R1ResumeAfterTopicsTests(unittest.TestCase):
     """R1: resuming when collect+topics are done but the digest is not."""
 
     def test_resume_from_topics_checkpoint_can_still_write(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         calls: list = []
         client = helper._fake_client(scripts, calls)
@@ -71,7 +71,7 @@ class R3GuardSeasonTests(unittest.TestCase):
     """R3: a guard-rejected digest must not send season updates or advance."""
 
     def test_guard_block_still_sends_season_update(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         client = helper._fake_client(scripts, [])
 
@@ -124,7 +124,7 @@ class R4CompensatedResumeTests(unittest.TestCase):
     """R4: resuming after a successful compensation must not resend the digest."""
 
     def test_resume_after_compensation_does_not_resend(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         client = helper._fake_client(scripts, [])
         draft = scripts["digest"]
@@ -197,7 +197,7 @@ class R5TelegramDryRunStateTests(unittest.TestCase):
     """R5: --telegram-dry-run must not persist published state."""
 
     def test_telegram_dry_run_does_not_write_history(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         client = helper._fake_client(scripts, [])
 
@@ -267,7 +267,7 @@ class B1MockQueuePollutionTests(unittest.TestCase):
     """B1: a mock delivery failure must not pollute the shared compensation queue."""
 
     def test_mock_delivery_failure_does_not_queue(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         client = helper._fake_client(scripts, [])
 
@@ -313,7 +313,7 @@ class B4ResumeWithoutApiKeyTests(unittest.TestCase):
     """B4: resuming a run whose digest is already written needs no model key."""
 
     def test_resume_without_api_key_after_digest_checkpoint(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         draft = scripts["digest"]
 
@@ -383,7 +383,7 @@ class B2CompensationThenFailureTests(unittest.TestCase):
         return run_dir
 
     def test_failure_after_compensation_does_not_resend_on_resume(self) -> None:
-        helper = ResumeIntegrationTests()
+        helper = RunHarness()
         scripts = helper._scripts()
         client = helper._fake_client(scripts, [])
         draft = scripts["digest"]

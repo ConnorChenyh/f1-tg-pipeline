@@ -221,6 +221,7 @@ def generate_digest(
         DIGEST_SYSTEM_PROMPT,
         user_prompt,
         validator=_validate_digest_payload,
+        stage="digest",
     )
 
     draft["title"] = digest_title

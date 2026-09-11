@@ -288,6 +288,48 @@ Runs older than `run_state.max_resume_age_hours` (default 6) are refused, and a
 run that already reached `delivered` has nothing to resume. `--resume` is ignored
 with `--mock`/`--dry-run`, which persist no state.
 
+### What did this run cost?
+
+`drafts/digest/meta.json` carries `model_usage`:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+run = sorted(Path("output").glob("2026-*"))[-1]
+meta = json.loads((run / "drafts/digest/meta.json").read_text())
+print(json.dumps(meta.get("model_usage"), ensure_ascii=False, indent=2))
+PY
+```
+
+It reports `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_sec`,
+`calls`, `failed_calls`, `retries` and a `by_stage` breakdown (`topics`, `digest`).
+Failed calls and consumed retries are counted, so a prompt that degrades into
+retry loops is visible.
+
+### Retries and timeouts
+
+`analyzer/net.py` retries standings and article fetches with jittered backoff.
+The OpenAI SDK's own retry loop is disabled so that `max_retries` in
+`config.yaml` is the true attempt budget; the SDK default of 2 would otherwise
+multiply requests. `deepseek.timeout_sec` bounds one request (default 120s,
+against the SDK's 600s default). Tune per call site:
+
+```yaml
+season_context:
+  standings_refresh:
+    retry: {attempts: 3, backoff_sec: 1.0, max_backoff_sec: 15.0}
+article_fetch:
+  retry: {attempts: 3, backoff_sec: 1.0, max_backoff_sec: 15.0}
+```
+
+### Old runs are not being cleaned up
+
+`output_retention` in `config.yaml` controls it (`keep_days`, `keep_min_runs`).
+A run is never removed while `pending_telegram_deliveries.json` or
+`active_run.json` references it. Non-pipeline folders such as
+`bbc_verstappen_20260911` are never candidates. Set `enabled: false` to disable.
+
 ### Standings look stale or the cache is wrong
 
 Fetched standings are stored in `output/standings_cache.json` for

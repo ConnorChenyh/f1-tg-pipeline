@@ -152,6 +152,7 @@ def extract_topics(
         TOPICS_SYSTEM_PROMPT,
         user_prompt,
         validator=_validate_topics_payload,
+        stage="topics",
     )
 
     candidates = [

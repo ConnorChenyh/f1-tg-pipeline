@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from analyzer.net import RetryExhaustedError, RetryPolicy, request_with_retry
+from analyzer.url_safety import UnsafeUrlError, assert_fetchable_url
+
 logger = logging.getLogger(__name__)
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -79,13 +82,60 @@ def _extract_jina_article_body(text: str) -> str:
     return "\n\n".join(paragraphs[:8])
 
 
-def _fetch_via_jina(url: str, timeout_sec: int) -> str | None:
+MAX_REDIRECTS = 5
+
+
+def _fetch_following_safe_redirects(
+    url: str,
+    timeout_sec: int,
+    headers: dict[str, str],
+    policy: RetryPolicy | None,
+    method: str,
+) -> requests.Response:
+    """GET a URL, validating every redirect hop before following it.
+
+    Automatic redirect following would let a redirect land on the host's own
+    network or a metadata endpoint after the first URL passed validation.
+    """
+    current = assert_fetchable_url(url)
+    for _hop in range(MAX_REDIRECTS + 1):
+        response = request_with_retry(
+            lambda target=current: requests.get(
+                target, timeout=timeout_sec, headers=headers, allow_redirects=False
+            ),
+            method=method,
+            policy=policy,
+        )
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("Location")
+        if not location:
+            return response
+        from urllib.parse import urljoin
+
+        current = assert_fetchable_url(urljoin(current, location))
+
+    raise UnsafeUrlError(f"too many redirects for {url}")
+
+
+def _fetch_via_jina(
+    url: str,
+    timeout_sec: int,
+    policy: RetryPolicy | None = None,
+) -> str | None:
     reader_url = f"https://r.jina.ai/{url}"
     try:
-        response = requests.get(
-            reader_url,
-            timeout=timeout_sec,
-            headers={"User-Agent": "f1-xhs-pipeline/1.0"},
+        # The fetch is performed by Jina, not by us, so the target host is not
+        # resolved locally; the scheme and literal host are still checked.
+        assert_fetchable_url(url, resolve_dns=False)
+        response = request_with_retry(
+            lambda: requests.get(
+                reader_url,
+                timeout=timeout_sec,
+                headers={"User-Agent": "f1-xhs-pipeline/1.0"},
+            ),
+            method="jina",
+            policy=policy,
         )
         response.raise_for_status()
         text = _extract_jina_article_body(response.text)
@@ -96,18 +146,19 @@ def _fetch_via_jina(url: str, timeout_sec: int) -> str | None:
         return None
 
 
-def _fetch_via_html(url: str, timeout_sec: int) -> str | None:
-    try:
-        response = requests.get(
-            url,
-            timeout=timeout_sec,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-            },
+def _fetch_via_html(
+    url: str,
+    timeout_sec: int,
+    policy: RetryPolicy | None = None,
+) -> str | None:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
+    }
+    try:
+        response = _fetch_following_safe_redirects(url, timeout_sec, headers, policy, "article")
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -144,19 +195,26 @@ def fetch_article_content(url: str, config: dict[str, Any]) -> dict[str, Any]:
     if not _should_fetch(url):
         return {"fetch_status": "skipped", "article_content": ""}
 
+    try:
+        assert_fetchable_url(url)
+    except UnsafeUrlError as exc:
+        logger.warning("Refusing to fetch unsafe URL %r: %s", url, exc)
+        return {"fetch_status": "unsafe", "article_content": ""}
+
     timeout_sec = int(fetch_cfg.get("timeout_sec", 15))
     max_chars = int(fetch_cfg.get("max_chars", 3500))
     use_jina = bool(fetch_cfg.get("use_jina", True))
+    policy = RetryPolicy.from_config(fetch_cfg.get("retry"))
 
     content = None
     fetch_method = None
 
     if use_jina:
-        content = _fetch_via_jina(url, timeout_sec)
+        content = _fetch_via_jina(url, timeout_sec, policy)
         fetch_method = "jina"
 
     if not content:
-        content = _fetch_via_html(url, timeout_sec)
+        content = _fetch_via_html(url, timeout_sec, policy)
         fetch_method = "html"
 
     if not content:

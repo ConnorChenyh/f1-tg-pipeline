@@ -18,6 +18,7 @@ from analyzer.evidence import enrich_topics_with_evidence
 from analyzer.evidence_gate import filter_topics_by_evidence_quality
 from analyzer.fallback_topics import build_fallback_article_topics
 from analyzer.normalize import normalize_posts
+from analyzer.retention import prune_output_runs
 from analyzer.run_state import (
     STAGE_COLLECT,
     STAGE_DELIVERED,
@@ -154,6 +155,18 @@ def load_shortlisted_posts(output_dir: Path) -> list:
         except (KeyError, TypeError, ValueError) as exc:
             logging.warning("Skipping malformed shortlist entry in %s: %s", path, exc)
     return posts
+
+
+def _collect_usage(client: object) -> dict:
+    """Token/latency totals for this run, including failed calls and retries."""
+    usage = getattr(client, "usage", None)
+    if usage is None:
+        return {}
+    try:
+        return usage.to_dict()
+    except Exception as exc:  # pragma: no cover - defensive only
+        logging.warning("Could not serialise model usage: %s", exc)
+        return {}
 
 
 def _load_meta_json(draft_dir: Path) -> dict:
@@ -427,6 +440,9 @@ def main() -> int:
     if persist_state:
         init_story_db(ROOT, config)
         prune_story_db(ROOT, config, run_context.generated_at)
+        # Never prunes a run referenced by the pending queue or the active-run
+        # pointer, and ignores non-pipeline directories.
+        prune_output_runs(ROOT / "output", config, run_context.generated_at)
 
     if output_dir is not None:
         state = prior_state
@@ -619,6 +635,7 @@ def main() -> int:
                 "fact_check_notes": fact_check_notes,
                 "guard_blocking_codes": guard_blocking_codes,
                 "guard_blocked": guard_blocked,
+                "model_usage": _collect_usage(client),
                 "run_context": {
                     "generated_at": run_context.generated_at.isoformat(),
                     "f1_season": run_context.f1_season,

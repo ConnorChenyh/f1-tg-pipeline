@@ -72,7 +72,7 @@ class StandingsTests(unittest.TestCase):
         original = standings_module.fetch_driver_standings
         original_team = standings_module.fetch_team_standings
         try:
-            standings_module.fetch_driver_standings = lambda _url, _timeout: _extract_from_text(
+            standings_module.fetch_driver_standings = lambda _url, _timeout, *_a, **_k: _extract_from_text(
                 """
                 1 Kimi Antonelli Mercedes 219
                 2 Lewis Hamilton Ferrari 169
@@ -84,7 +84,7 @@ class StandingsTests(unittest.TestCase):
                 8 Isack Hadjar Red Bull Racing 68
                 """
             )
-            standings_module.fetch_team_standings = lambda _url, _timeout: _extract_team_standings_from_text(
+            standings_module.fetch_team_standings = lambda _url, _timeout, *_a, **_k: _extract_team_standings_from_text(
                 "1 Mercedes 425 2 Ferrari 338 3 McLaren 263 4 Red Bull Racing 186"
             )
             refreshed = refresh_team_baseline_from_standings(

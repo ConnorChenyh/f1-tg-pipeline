@@ -240,6 +240,51 @@ those modes persist nothing.
 the Dockerfile installs, so a cold build cannot silently drift onto a new major
 version. Refresh it only as part of an intentional upgrade.
 
+## Outbound Calls, Retries And Telemetry
+
+`analyzer/net.py` owns retry behaviour for plain HTTP calls:
+
+- bounded attempts with exponential backoff **and full jitter** (`RetryPolicy`)
+- retries transport errors and retryable status codes (408/409/429/5xx)
+- a plain 4xx is returned to the caller instead of burning the budget
+
+`analyzer/standings.py` and `analyzer/article_fetcher.py` both use it; neither had
+any retry before. `article_fetcher` follows redirects manually so that every hop
+is validated by `analyzer/url_safety.py` before the next request.
+
+`generator/deepseek_client.py` keeps the OpenAI SDK's own retry loop **disabled**
+(`max_retries=0`) so the outer loop is the only retry layer and the attempt count
+is real. Without that, one logical call could become up to six requests. It also
+sets an explicit `timeout_sec`, because the SDK default read timeout is 600s.
+
+`TokenUsage` accumulates prompt/completion tokens, latency, retries and failed
+calls per stage, including calls that ultimately failed. `run.py` writes it into
+`drafts/digest/meta.json` as `model_usage`, so the cost of a run is inspectable
+instead of invisible.
+
+## Fetch Safety
+
+Article URLs come from Reddit and RSS content, so they are attacker-influenced.
+`analyzer/url_safety.py` refuses to fetch a URL whose scheme is not http/https,
+whose host is a blocked name (`localhost`, `*.local`, `metadata.google.internal`),
+or that resolves to a loopback/private/link-local/CGNAT/reserved address, including
+IPv6 loopback and unique-local ranges. DNS is resolved and checked so a public
+name pointing at a private address is rejected too. Redirect targets are validated
+per hop. `fetch_article_content` returns `fetch_status: "unsafe"` for these.
+
+## Output Retention
+
+`analyzer/retention.py` removes old pipeline run directories. It is deliberately
+narrow:
+
+- only directories matching the timestamp pattern are candidates, so hand-made
+  folders are never touched
+- shared state files (`topic_history.json`, `story_memory.sqlite3`, standings
+  cache, pending queue, active-run pointer) are never candidates
+- a run referenced by `pending_telegram_deliveries.json` or `active_run.json` is
+  always kept, so compensation and resume cannot break
+- at least `keep_min_runs` runs are always kept
+
 ## Persistent State And Test Modes
 
 Persistent memory lives under `output/`:
