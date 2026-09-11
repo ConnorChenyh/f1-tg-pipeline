@@ -203,7 +203,7 @@ class RunDeadlineTests(unittest.TestCase):
     def test_retry_is_skipped_when_it_would_exceed_the_budget(self) -> None:
         client = self._client_with(60)
         client.retry_policy = RetryPolicy(attempts=5, backoff_sec=30.0, max_backoff_sec=30.0)
-        client._deadline = time.monotonic() + 1.0  # only a moment left
+        client._deadline = time.monotonic() + 60.0  # plenty of budget left
         calls = {"n": 0}
         slept: list[float] = []
 
@@ -211,7 +211,11 @@ class RunDeadlineTests(unittest.TestCase):
             calls["n"] += 1
             raise httpx.ConnectError("down")
 
+        # Patch the delay rather than relying on jitter: backoff_delay is
+        # uniform(0, cap), so an unpatched delay is sometimes short enough to
+        # fit inside the remaining budget and the test would flake (~3.5%).
         with patch.object(client.client.chat.completions, "create", side_effect=boom), \
+             patch("generator.deepseek_client.backoff_delay", return_value=120.0), \
              patch("generator.deepseek_client.time.sleep", side_effect=slept.append):
             with self.assertRaises(RuntimeError):
                 client.chat_json("m", "s", "p")
