@@ -70,7 +70,14 @@ python run.py --telegram-only output/<timestamp> --telegram-dry-run
 
 `--mock` only validates the local pipeline path. It does not evaluate final
 Chinese copy quality because it intentionally skips DeepSeek and uses simple
-placeholder text.
+placeholder text. `--mock` and `--dry-run` are read-only with respect to
+persistent memory: they never write topic history, the story DB, or the season
+snapshot, so a throwaway run cannot suppress real topics.
+
+`--push-telegram` delivers a single title line followed by the images. The body
+is not duplicated into the message: the cover card lists every headline and each
+detail card carries its own text. Images are sent in batches of 10 when a digest
+has more slides than one media group allows.
 
 ## Output
 
@@ -80,9 +87,13 @@ Each run creates `output/<timestamp>/` with:
 - `shortlisted_posts.json` - deterministic candidate shortlist sent to topic extraction
 - `topics.json` - hot topics used in the digest
 - `drafts/digest/` - single roundup: `draft.md`, `draft.json`, `images/*.png`
+- `drafts/digest/render_measurements.json` - per-slide `source_chars` vs
+  `rendered_chars` plus a `truncated` flag, so silent text loss on a card is visible
 - `preview.html` - local review page with copy button
 
 The digest title is fixed as **围场过去24H新闻**, with body items numbered 一、二、三...
+The delivered Telegram title appends the run date (`围场过去24H新闻YY.MM.DD`), derived
+from the run's `meta.json` so it has a single source of truth.
 
 ## Scheduled Docker Deployment
 
@@ -145,6 +156,18 @@ starts, then it will continue with the daily schedule.
   runs by default (`deepseek.fact_check_enabled`), followed by a separate final
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,
   semantic clarity, terminology, and last-mile fact confirmation.
+- LLM responses are contract-checked. A response with valid JSON but the wrong
+  shape (missing `items`, empty `topics`, non-numeric `heat_score`) triggers a
+  repair re-prompt that includes the specific validation error, rather than a
+  blind repeat of the same request.
+- If the deterministic quality guard still rejects the draft after review, the
+  run **saves the draft anyway** and records `guard_blocked` plus
+  `guard_blocking_codes` in `meta.json`. Delivery is skipped and no season
+  snapshot is advanced, but the day's work is preserved for human review instead
+  of being lost. Check `guard_blocking_codes` in `meta.json` after such a run.
+- Image layout reports truncation. If an item cannot fit one card,
+  `render_measurements.json` records it and the log warns, so "each item fits one
+  image" is verifiable rather than assumed.
 - Digest generation uses a compact grounding packet and a deterministic quality
   guard before saving. Blocking issues include source links outside evidence and
   obvious semantic compression such as turning separate hillclimb/balcony actions

@@ -196,6 +196,64 @@ topic history.
 Do not disable evidence gating unless the goal is explicitly to include rumor or
 social-only content.
 
+### Guard rejected the draft
+
+The log line is:
+
+```text
+Quality guard rejected the draft; saved for human review and skipped delivery: too_few_items
+```
+
+The run still succeeds and the draft is on disk. Inspect:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+meta = json.loads(Path("output/<timestamp>/drafts/digest/meta.json").read_text())
+print("guard_blocked:", meta["guard_blocked"])
+print("blocking codes:", meta["guard_blocking_codes"])
+print("notes:", meta.get("fact_check_notes"))
+PY
+```
+
+Nothing was delivered to Telegram and the season snapshot was not advanced, so the
+next Telegram-enabled run still carries the same context. Topics from a rejected
+run are recorded in topic history, so the same story is not re-picked and
+re-rejected tomorrow. Fix the underlying cause in `generator/digest_writer.py`
+or `generator/quality_guard.py` prompts/patterns, or push the saved draft
+manually:
+
+```bash
+python run.py --telegram-only output/<timestamp>
+```
+
+### Item text is truncated on an image
+
+`generate_images_for_digest` logs:
+
+```text
+Image layout truncated 1 item(s) that did not fit one card: slide_02.png (191/2400 chars)
+```
+
+Check `drafts/digest/render_measurements.json` (also copied into `meta.json` as
+`image_measurements`). `rendered_chars` below `source_chars` means content was
+dropped to fit. Reduce `digest.item_max_chars`, or raise the font-search floor in
+`generator/images.py`.
+
+### LLM returned a malformed response
+
+Expected log:
+
+```text
+Model response failed schema validation (attempt 1/2): 'items' must be a non-empty JSON array
+```
+
+The client re-prompts with the validation error included. If all attempts fail
+the run aborts with a `RuntimeError` naming the error kind (`schema` or
+`transport`). A `transport` error is retried; a caller error such as a bad
+request is not retried.
+
 ### Chinese text renders as boxes or garbled characters
 
 Docker must install `fonts-noto-cjk`, and `generator/images.py` must use Noto CJK

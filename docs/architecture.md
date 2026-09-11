@@ -144,6 +144,26 @@ per topic. Then:
   and last-mile factual consistency.
 - `generator/quality_guard.py` enforces deterministic checks before save.
 
+LLM responses are contract-checked before use. `analyzer/topics.py` validates the
+topic payload and `generator/digest_writer.py` validates the digest payload;
+`DeepSeekClient.chat_json` accepts a `validator` and re-prompts with the concrete
+validation error when the shape is wrong, so a malformed-but-parseable response
+is repaired instead of silently retried or crashing downstream. Transport errors
+are retried; non-retryable caller errors are not.
+
+If the quality guard still reports `error`-severity issues after the review pass,
+`generate_digest` returns the draft together with the blocking codes instead of
+raising. `run.py` then:
+
+- saves `draft.json` / `meta.json` as usual,
+- records `guard_blocked: true` and `guard_blocking_codes` in `meta.json`,
+- skips Telegram delivery, and
+- does **not** advance the season snapshot.
+
+This keeps a rejected draft available for human review rather than discarding the
+whole run. Blocking codes caused by a regex false positive are visible in
+`meta.json`.
+
 Important prompt constraints:
 
 - no unsupported facts, numbers, or causality
@@ -163,7 +183,33 @@ The digest sends:
 - a cover image listing all topics
 - one detail image per digest item
 
-The Telegram publisher sends only the title text plus images.
+`render_item_card_with_measure` reports how much of an item's content actually
+fit: the smallest font is tried first, and if text still overflows, lines are
+dropped and `truncated` is set. `generate_images_for_digest` writes
+`drafts/digest/render_measurements.json` with per-slide `source_chars`,
+`rendered_chars`, `truncated`, and `font_size`, and logs a warning listing any
+truncated slides. `run.py` copies that report into `meta.json` under
+`image_measurements`, so silent text loss is detectable.
+
+The Telegram publisher sends the date-stamped title line, then the images,
+splitting them into media groups of 10. The digest body is deliberately not sent
+as message text because the cover card lists the headlines and each detail card
+contains its own body copy.
+
+## Persistent State And Test Modes
+
+Persistent memory lives under `output/`:
+
+- `output/topic_history.json`
+- `output/story_memory.sqlite3`
+- `output/season_context_state.json`
+- `output/pending_telegram_deliveries.json`
+
+`run.py` computes `persist_state = not (mock or dry_run)`. In `--mock` and
+`--dry-run` modes it does not initialise or prune the story DB, does not record
+candidates or published topics, and does not advance the season snapshot. Those
+modes exist to validate the pipeline path, and writing memory from them would
+suppress real topics for the whole cooldown window.
 
 ## Configuration
 
@@ -192,8 +238,10 @@ Each run writes `output/<timestamp>/`:
 - `run_context.json` - run timestamp and window
 - `drafts/digest/draft.json` - final digest payload
 - `drafts/digest/draft.md` - Markdown rendering
-- `drafts/digest/meta.json` - topics, skipped reasons, images, review notes
+- `drafts/digest/meta.json` - topics, skipped reasons, images, review notes,
+  `guard_blocked`, `guard_blocking_codes`, `image_measurements`
 - `drafts/digest/images/*.png` - Telegram-ready images
+- `drafts/digest/render_measurements.json` - per-slide layout/truncation report
 - `preview.html` - local preview
 
 Persistent memory files live under `output/` as well, because Docker mounts that

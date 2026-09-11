@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from analyzer.context import RunContext
-from generator.deepseek_client import DeepSeekClient
+from generator.deepseek_client import DeepSeekClient, ResponseShapeError
 from generator.evidence_pack import build_digest_grounding
 from generator.fact_check import fact_check_digest
 from generator.final_review import final_review_digest
@@ -76,6 +76,22 @@ Rules:
 """
 
 
+def _validate_digest_payload(payload: Any) -> dict[str, Any]:
+    """Shape check for the digest writer; raises ResponseShapeError to re-prompt."""
+    if not isinstance(payload, dict):
+        raise ResponseShapeError(f"expected a JSON object, got {type(payload).__name__}")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ResponseShapeError("'items' must be a non-empty JSON array")
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ResponseShapeError(f"items[{index}] must be an object")
+        for key in ("headline", "content"):
+            if not str(item.get(key) or "").strip():
+                raise ResponseShapeError(f"items[{index}].{key} is required and must be non-empty")
+    return payload
+
+
 def generate_digest(
     client: DeepSeekClient,
     topics: list[dict[str, Any]],
@@ -88,7 +104,14 @@ def generate_digest(
     item_max_chars: int = 380,
     fact_check_enabled: bool = True,
     final_review_enabled: bool = True,
-) -> tuple[dict[str, Any], list[str]]:
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Write and review one digest.
+
+    Returns ``(draft, notes, blocking_codes)``. A non-empty
+    ``blocking_codes`` means the deterministic quality guard still rejects the
+    draft after review. The draft is returned either way so the caller can save
+    it for human review instead of losing the whole run.
+    """
     grounding = build_digest_grounding(topics)
     user_prompt = DIGEST_USER_TEMPLATE.format(
         run_context=run_context.to_prompt_block(),
@@ -100,9 +123,12 @@ def generate_digest(
         item_target_chars=item_target_chars,
         item_max_chars=item_max_chars,
     )
-    draft = client.chat_json(client.model_writer, DIGEST_SYSTEM_PROMPT, user_prompt)
-    if not isinstance(draft, dict):
-        raise ValueError("digest response is not an object")
+    draft = client.chat_json(
+        client.model_writer,
+        DIGEST_SYSTEM_PROMPT,
+        user_prompt,
+        validator=_validate_digest_payload,
+    )
 
     draft["title"] = digest_title
     quality_issues = validate_digest(
@@ -113,6 +139,7 @@ def generate_digest(
         min_item_chars=item_min_chars,
         max_item_chars=item_max_chars,
     )
+    unresolved_codes = {issue.code for issue in blocking_issues(quality_issues)}
 
     fact_check_notes: list[str] = []
     if fact_check_enabled:
@@ -155,8 +182,10 @@ def generate_digest(
         max_item_chars=item_max_chars,
     )
     blockers = blocking_issues(final_quality_issues)
-    if blockers:
-        raise ValueError(f"digest quality guard failed: {issue_summary(blockers)}")
+    blocking_codes = [issue.code for issue in blockers]
+    # A blocker that already existed before the review pass means the review did
+    # not resolve it; flag that explicitly instead of implying the guard won.
+    not_resolved = sorted(unresolved_codes & set(blocking_codes))
 
     for note in review_notes:
         fact_check_notes.append(f"终审提示：{note}")
@@ -164,7 +193,14 @@ def generate_digest(
     for issue in final_quality_issues:
         fact_check_notes.append(f"质量检查提示：{issue.message}")
 
-    return draft, fact_check_notes
+    if blocking_codes:
+        logger.error(
+            "Quality guard rejected the draft: %s (unresolved before review: %s)",
+            issue_summary(blockers),
+            ", ".join(not_resolved) or "none",
+        )
+
+    return draft, fact_check_notes, blocking_codes
 
 
 def digest_to_markdown(draft: dict[str, Any], fact_check_notes: list[str] | None = None) -> str:

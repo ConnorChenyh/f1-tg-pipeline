@@ -42,7 +42,7 @@ from collectors.rss import collect_rss
 from collectors.twitter import collect_twitter
 from generator.deepseek_client import DeepSeekClient
 from generator.digest_writer import generate_digest, save_digest
-from generator.images import generate_images_for_digest
+from generator.images import RENDER_MEASUREMENTS_FILENAME, generate_images_for_digest
 from generator.preview import generate_preview
 from publisher.telegram import TelegramConfigError, push_digest_to_telegram
 from publisher.telegram_delivery_queue import deliver_pending_digests, enqueue_pending_delivery
@@ -113,6 +113,18 @@ def mock_digest(topics: list[dict]) -> dict:
 def save_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _load_image_measurements(draft_dir: Path) -> dict:
+    """Read the per-slide layout report so truncation is visible in meta.json."""
+    path = draft_dir / RENDER_MEASUREMENTS_FILENAME
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Failed to read image measurements %s: %s", path, exc)
+        return {}
 
 
 def build_output_dir(root: Path) -> Path:
@@ -232,7 +244,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="F1 hot topics to Xiaohongshu draft pipeline")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Path to config.yaml")
     parser.add_argument("--hours", type=int, default=None, help="Time window in hours")
-    parser.add_argument("--max-drafts", type=int, default=None, help="Maximum drafts to generate")
     parser.add_argument("--dry-run", action="store_true", help="Collect and cluster only")
     parser.add_argument("--mock", action="store_true", help="Skip DeepSeek and use mock topics/drafts")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
@@ -273,7 +284,6 @@ def main() -> int:
             logging.info("Telegram compensation completed for %d pending digest(s)", delivered)
 
     window_hours = args.hours if args.hours is not None else int(config.get("window_hours", 12))
-    max_drafts = args.max_drafts if args.max_drafts is not None else int(config.get("max_drafts", 3))
     heat_threshold = int(config.get("heat_threshold", 60))
     fact_check_enabled = bool(config.get("deepseek", {}).get("fact_check_enabled", True))
     final_review_enabled = bool(config.get("deepseek", {}).get("final_review_enabled", True))
@@ -295,8 +305,14 @@ def main() -> int:
     previous_season_snapshot = load_season_snapshot(ROOT, config)
     season_update_message = build_season_update_message(previous_season_snapshot, season_snapshot)
     run_id = run_context.generated_at.strftime("%Y-%m-%d_%H%M%S")
-    init_story_db(ROOT, config)
-    prune_story_db(ROOT, config, run_context.generated_at)
+    # Mock and dry runs exist to validate the pipeline path, so they must not
+    # touch published-topic memory, prune story memory, or advance the season
+    # snapshot; otherwise a throwaway run suppresses real topics for the whole
+    # cooldown window.
+    persist_state = not args.mock and not args.dry_run
+    if persist_state:
+        init_story_db(ROOT, config)
+        prune_story_db(ROOT, config, run_context.generated_at)
 
     output_dir = build_output_dir(ROOT)
     logging.info("Output directory: %s", output_dir)
@@ -317,7 +333,8 @@ def main() -> int:
     save_json(output_dir / "raw_posts.json", [p.to_dict() for p in scored])
     shortlisted = shortlist_posts(scored, config, run_context.generated_at)
     save_json(output_dir / "shortlisted_posts.json", [p.to_dict() for p in shortlisted])
-    record_candidates(shortlisted, ROOT, config, run_id, run_context.generated_at)
+    if persist_state:
+        record_candidates(shortlisted, ROOT, config, run_id, run_context.generated_at)
 
     if not shortlisted:
         logging.error("No posts collected in the last %s hours", window_hours)
@@ -397,12 +414,13 @@ def main() -> int:
     effective_min_items = min(digest_min_items, len(digest_topics))
     draft_dir = output_dir / "drafts" / "digest"
     fact_check_notes: list[str] = []
+    guard_blocking_codes: list[str] = []
 
     try:
         if args.mock:
             draft = mock_digest(digest_topics)
         else:
-            draft, fact_check_notes = generate_digest(
+            draft, fact_check_notes, guard_blocking_codes = generate_digest(
                 client,
                 digest_topics,
                 run_context,
@@ -417,11 +435,16 @@ def main() -> int:
             )
         save_digest(draft_dir, draft, fact_check_notes or None)
         image_paths = generate_images_for_digest(draft, digest_topics, draft_dir, config)
+        guard_blocked = bool(guard_blocking_codes)
         meta = {
+            "digest_title": digest_title,
             "topics": digest_topics,
             "skipped_recent_topics": skipped_recent_topics,
             "images": image_paths,
+            "image_measurements": _load_image_measurements(draft_dir),
             "fact_check_notes": fact_check_notes,
+            "guard_blocking_codes": guard_blocking_codes,
+            "guard_blocked": guard_blocked,
             "run_context": {
                 "generated_at": run_context.generated_at.isoformat(),
                 "f1_season": run_context.f1_season,
@@ -430,32 +453,49 @@ def main() -> int:
         }
         save_json(draft_dir / "meta.json", meta)
         logging.info("Generated digest at %s", draft_dir)
-        if args.push_telegram:
+
+        push_attempted = False
+        pushed_ok = False
+        if guard_blocked:
+            logging.error(
+                "Quality guard rejected the draft; saved for human review and skipped delivery: %s",
+                ", ".join(guard_blocking_codes),
+            )
+        elif args.push_telegram:
+            push_attempted = True
             try:
                 result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
+                pushed_ok = True
             except Exception:
                 if not args.telegram_dry_run:
                     enqueue_pending_delivery(ROOT, config, output_dir)
                 raise
             logging.info("Telegram push result: %s", result)
-        if not args.telegram_dry_run:
+
+        if persist_state:
             append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
             record_published_topics(digest_topics, ROOT, config, run_context.generated_at)
-            snapshot_can_advance = True
+            # Only advance the season snapshot once the digest that carries the
+            # same context has actually reached Telegram, so a deferred run does
+            # not silently swallow the update.
+            digest_delivered = pushed_ok or not push_attempted
             if season_update_message:
-                if args.push_telegram:
+                if args.push_telegram and digest_delivered:
                     try:
                         send_text_to_telegram(season_update_message, config)
                         logging.info("Season context update sent to Telegram")
                     except Exception as exc:
-                        snapshot_can_advance = False
+                        digest_delivered = False
                         logging.warning("Season context Telegram update failed; will retry: %s", exc)
                 else:
-                    snapshot_can_advance = False
-                    logging.info("Season context update pending until a Telegram-enabled run")
-            if monitor_enabled(config) and snapshot_can_advance:
+                    digest_delivered = False
+                    logging.info("Season context update pending until a delivered Telegram run")
+            if monitor_enabled(config) and digest_delivered:
                 save_season_snapshot(ROOT, config, season_snapshot)
                 logging.info("Season context snapshot updated")
+        else:
+            logging.info("Test mode (%s): published-topic memory and season snapshot left untouched",
+                         "mock" if args.mock else "dry-run")
     except Exception as exc:
         logging.error("Failed to generate digest: %s", exc)
         return 1

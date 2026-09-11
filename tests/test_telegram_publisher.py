@@ -7,7 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from publisher.telegram import _digest_title_for_telegram
 from publisher.telegram import _format_digest_text
+from publisher.telegram import _send_media_groups
 from publisher.telegram import push_digest_to_telegram
 
 
@@ -57,6 +59,7 @@ class TelegramPublisherTests(unittest.TestCase):
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["chat_id"], "123")
         self.assertEqual(result["text_preview"], "围场过去24H新闻26.07.13")
+        self.assertEqual(result["text_chars"], len("围场过去24H新闻26.07.13"))
         self.assertEqual(len(result["images"]), 3)
         self.assertTrue(result["images"][0].endswith("cover.png"))
         self.assertTrue(result["images"][1].endswith("slide_01.png"))
@@ -85,10 +88,43 @@ class TelegramPublisherTests(unittest.TestCase):
         self.assertEqual(text, "围场过去24H新闻26.07.13")
         self.assertNotIn("导语不要出现", text)
         self.assertNotIn("一、标题", text)
+        self.assertNotIn("正文", text)
         self.assertNotIn("#F1", text)
         self.assertNotIn("Sources", text)
         self.assertNotIn("https://example.com/source", text)
 
+    def test_text_is_trimmed_to_max_chars(self) -> None:
+        text = _format_digest_text(
+            {"title": "围场过去24H新闻" * 40, "items": []},
+            max_chars=20,
+            title="围场过去24H新闻" * 40,
+        )
+
+        self.assertLessEqual(len(text), 20)
+        self.assertTrue(text.endswith("…"))
+
+    def test_telegram_title_uses_meta_generation_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            draft_dir = Path(tmp) / "drafts" / "digest"
+            draft_dir.mkdir(parents=True)
+            (draft_dir / "meta.json").write_text(
+                json.dumps({"run_context": {"generated_at": "2026-07-13T09:30:00+00:00"}}),
+                encoding="utf-8",
+            )
+
+            title = _digest_title_for_telegram(draft_dir, "围场过去24H新闻")
+
+        self.assertEqual(title, "围场过去24H新闻26.07.13")
+
+    def test_media_groups_split_after_ten_images(self) -> None:
+        images = [Path(f"slide_{index:02d}.png") for index in range(11)]
+        with patch("publisher.telegram._send_media_group", return_value={"ok": True}) as send:
+            result = _send_media_groups("token", "chat", images, 30)
+
+        self.assertEqual(result, [{"ok": True}, {"ok": True}])
+        self.assertEqual(send.call_count, 2)
+        self.assertEqual(len(send.call_args_list[0].args[2]), 10)
+        self.assertEqual(len(send.call_args_list[1].args[2]), 1)
 
 if __name__ == "__main__":
     unittest.main()

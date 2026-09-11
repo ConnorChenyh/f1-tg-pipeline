@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from generator.images import TEXT_WIDTH_RATIO, _load_font, _wrap_text, generate_images_for_digest
+from generator.images import (
+    RENDER_MEASUREMENTS_FILENAME,
+    TEXT_WIDTH_RATIO,
+    _load_font,
+    _wrap_text,
+    generate_images_for_digest,
+    render_item_card_with_measure,
+)
 
 
 class DigestImageTests(unittest.TestCase):
@@ -44,6 +52,48 @@ class DigestImageTests(unittest.TestCase):
             names = [Path(path).name for path in paths]
 
         self.assertEqual(names, ["cover.png", "slide_01.png", "slide_02.png"])
+
+    def test_short_content_reports_no_truncation(self) -> None:
+        content = "法拉利在西班牙站带来新底板，目标是改善低速弯的下压力表现。"
+
+        _, measure = render_item_card_with_measure("一", "底板升级", content, 540, 720)
+
+        self.assertFalse(measure["truncated"])
+        self.assertEqual(measure["rendered_chars"], measure["source_chars"])
+        self.assertEqual(measure["source_chars"], len(content))
+
+    def test_oversized_content_is_reported_as_truncated(self) -> None:
+        # The old code silently dropped lines here; the loss must be measurable.
+        content = "这是一条非常长的正文。" * 400
+
+        _, measure = render_item_card_with_measure("一", "超长", content, 540, 720)
+
+        self.assertTrue(measure["truncated"], "oversized content must be flagged")
+        self.assertLess(measure["rendered_chars"], measure["source_chars"])
+
+    def test_measurements_are_written_next_to_the_images(self) -> None:
+        draft = {
+            "title": "围场过去24H新闻",
+            "hook": "导语",
+            "items": [
+                {"ordinal": "一", "headline": "短标题", "content": "短正文。"},
+                {"ordinal": "二", "headline": "长标题", "content": "很长的正文。" * 400},
+            ],
+            "sources": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            draft_dir = Path(tmp) / "drafts" / "digest"
+            generate_images_for_digest(
+                draft, [], draft_dir, {"images": {"width": 540, "height": 720}}
+            )
+            payload = json.loads(
+                (draft_dir / RENDER_MEASUREMENTS_FILENAME).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(payload["truncated_count"], 1)
+        self.assertEqual([item["slide"] for item in payload["items"]], ["slide_01.png", "slide_02.png"])
+        self.assertFalse(payload["items"][0]["truncated"])
+        self.assertTrue(payload["items"][1]["truncated"])
 
 
 if __name__ == "__main__":

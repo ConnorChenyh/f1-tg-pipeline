@@ -76,6 +76,28 @@ class QualityGuardTests(unittest.TestCase):
             ["event_conflation_balcony"],
         )
 
+    def test_bahrain_grand_prix_cannot_be_described_as_held_in_malaysia(self) -> None:
+        topics = [{"evidence_urls": ["https://example.com/source"]}]
+        draft = {
+            "title": "围场过去24H新闻",
+            "hook": "",
+            "items": [
+                {
+                    "ordinal": "二",
+                    "headline": "升级预算之争",
+                    "content": "更大的升级包据报计划在十月于马来西亚举行的巴林大奖赛推出。",
+                }
+            ],
+            "sources": ["https://example.com/source"],
+        }
+
+        issues = validate_digest(draft, topics, min_items=1, max_items=5)
+
+        self.assertIn(
+            "impossible_bahrain_malaysia_race_location",
+            {issue.code for issue in blocking_issues(issues)},
+        )
+
     def test_sources_must_come_from_evidence(self) -> None:
         topics = [{"evidence_urls": ["https://example.com/source"]}]
         draft = {

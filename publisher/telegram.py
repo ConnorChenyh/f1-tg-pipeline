@@ -31,23 +31,33 @@ def _trim_text(text: str, max_chars: int) -> str:
     return text[: max_chars - 1].rstrip() + "…"
 
 
-def _digest_title_for_telegram(draft_dir: Path | None = None) -> str:
+def _digest_title_for_telegram(draft_dir: Path | None = None, title: str | None = None) -> str:
+    """Build the delivered title from the run's stored context.
+
+    ``title`` is the digest title the pipeline wrote. The generation date comes
+    from ``meta.json`` when available, so the date suffix has one source of
+    truth instead of being recomputed at delivery time.
+    """
+    base = (title or "").strip()
     generated_at: datetime | None = None
     if draft_dir is not None:
         meta_path = draft_dir / "meta.json"
         if meta_path.exists():
             try:
                 meta = _load_json(meta_path)
+                if not base:
+                    base = str(meta.get("digest_title") or "").strip()
                 raw = (meta.get("run_context") or {}).get("generated_at")
                 if raw:
                     generated_at = datetime.fromisoformat(str(raw).replace("Z", "+00:00")).astimezone()
             except Exception as exc:
-                logger.info("Failed to read Telegram title date from %s: %s", meta_path, exc)
+                logger.info("Failed to read Telegram title context from %s: %s", meta_path, exc)
 
     if generated_at is None:
         generated_at = datetime.now().astimezone()
 
-    return f"围场过去24H新闻{generated_at.strftime('%y.%m.%d')}"
+    prefix = base or "围场过去24H新闻"
+    return f"{prefix}{generated_at.strftime('%y.%m.%d')}"
 
 
 def _format_digest_text(
@@ -55,6 +65,11 @@ def _format_digest_text(
     max_chars: int = DEFAULT_MAX_TEXT_CHARS,
     title: str | None = None,
 ) -> str:
+    """Deliver the title line only, followed by the image set.
+
+    The digest body is not duplicated into the message: the cover card lists the
+    topics and each detail card carries its own text.
+    """
     text = title or str(draft.get("title") or "")
     return _trim_text(text, min(max_chars, TELEGRAM_MESSAGE_LIMIT))
 
@@ -79,7 +94,7 @@ def _image_paths(draft_dir: Path) -> list[Path]:
         if path not in seen and path.name != "slide_last.png":
             ordered.append(path)
 
-    return ordered[:TELEGRAM_MEDIA_GROUP_LIMIT]
+    return ordered
 
 
 def _telegram_api_url(token: str, method: str) -> str:
@@ -196,6 +211,28 @@ def _send_media_group(
             handle.close()
 
 
+def _send_media_groups(
+    token: str,
+    chat_id: str,
+    images: list[Path],
+    timeout_sec: int,
+    retry_attempts: int = 1,
+    retry_backoff_sec: float = 0,
+) -> list[dict[str, Any]]:
+    return [
+        result
+        for start in range(0, len(images), TELEGRAM_MEDIA_GROUP_LIMIT)
+        if (result := _send_media_group(
+            token,
+            chat_id,
+            images[start : start + TELEGRAM_MEDIA_GROUP_LIMIT],
+            timeout_sec,
+            retry_attempts,
+            retry_backoff_sec,
+        )) is not None
+    ]
+
+
 def push_digest_to_telegram(
     draft_dir: Path,
     config: dict[str, Any],
@@ -220,7 +257,7 @@ def push_digest_to_telegram(
         raise FileNotFoundError(f"draft.json not found: {draft_path}")
 
     draft = _load_json(draft_path)
-    title = _digest_title_for_telegram(draft_dir)
+    title = str(draft.get("telegram_title") or _digest_title_for_telegram(draft_dir, draft.get("title")))
     text = _format_digest_text(draft, max_chars=max_text_chars, title=title)
     images = _image_paths(draft_dir)
 
@@ -245,7 +282,7 @@ def push_digest_to_telegram(
         retry_attempts,
         retry_backoff_sec,
     )
-    media_result = _send_media_group(
+    media_results = _send_media_groups(
         token,
         chat_id,
         images,
@@ -254,9 +291,14 @@ def push_digest_to_telegram(
         retry_backoff_sec,
     )
 
-    logger.info("Telegram push complete: %d images", len(images))
+    logger.info(
+        "Telegram push complete: %d images in %d media group(s)",
+        len(images),
+        len(media_results),
+    )
     return {
         "message": message_result,
-        "media": media_result,
+        "media": media_results,
+        "media_group_count": len(media_results),
         "image_count": len(images),
     }
