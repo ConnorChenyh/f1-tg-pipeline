@@ -202,6 +202,10 @@ starts, then it will continue with the daily schedule.
   redirect hop), so a link from Reddit or RSS content cannot reach the host's own network.
 - Standings and article fetches retry with bounded, jittered backoff. The OpenAI SDK's own retry
   loop is disabled so the configured attempt budget is the real one.
+- `deepseek.max_total_seconds` (default 900) caps all model calls in one run. When it is spent the
+  run stops with a clear error instead of retrying further; work already checkpointed can be
+  continued with `--resume`, but a run that exhausts the budget before topic extraction produces
+  no digest.
 - Old run directories are pruned after `output_retention.keep_days`, but never while a run is
   referenced by the pending-delivery queue or the active-run pointer.
 - Telegram push is optional. Create a bot with BotFather, send `/start` to the
