@@ -4,13 +4,13 @@ import logging
 import re
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 from analyzer.net import RetryExhaustedError, RetryPolicy, request_with_retry
-from analyzer.url_safety import UnsafeUrlError, assert_fetchable_url
+from analyzer.url_safety import UnsafeUrlError, assert_fetchable_url, resolve_and_validate
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,40 @@ def _extract_jina_article_body(text: str) -> str:
 MAX_REDIRECTS = 5
 
 
+class _PinnedAddressAdapter(requests.adapters.HTTPAdapter):
+    """Connect to an already-validated address, not to a fresh DNS answer.
+
+    Hostname verification and SNI stay on the original name, so TLS remains
+    correct; only the address actually dialled is pinned.
+    """
+
+    def __init__(self, host: str, address: str, **kwargs: Any) -> None:
+        self._pinned_host = host
+        self._pinned_address = address
+        super().__init__(**kwargs)
+
+    def _resolve(self, host: str, port: int) -> str:
+        if host == self._pinned_host:
+            return self._pinned_address
+        return host
+
+    def send(self, request, **kwargs):  # type: ignore[override]
+        original = self.poolmanager.connection_from_host
+
+        def pinned(host, port=None, scheme=None, pool_kwargs=None):
+            kwargs2 = dict(pool_kwargs or {})
+            # Keep the real name for certificate verification.
+            kwargs2.setdefault("assert_hostname", host)
+            kwargs2.setdefault("server_hostname", host)
+            return original(self._resolve(host, port or 0), port, scheme, kwargs2)
+
+        self.poolmanager.connection_from_host = pinned  # type: ignore[assignment]
+        try:
+            return super().send(request, **kwargs)
+        finally:
+            self.poolmanager.connection_from_host = original  # type: ignore[assignment]
+
+
 def _fetch_following_safe_redirects(
     url: str,
     timeout_sec: int,
@@ -99,20 +133,29 @@ def _fetch_following_safe_redirects(
     """
     current = assert_fetchable_url(url)
     for _hop in range(MAX_REDIRECTS + 1):
-        response = request_with_retry(
-            lambda target=current: requests.get(
-                target, timeout=timeout_sec, headers=headers, allow_redirects=False
-            ),
-            method=method,
-            policy=policy,
-        )
+        def _get(target: str = current) -> requests.Response:
+            # Re-resolve per attempt and connect to the checked address, so a
+            # changed DNS answer cannot redirect the connection inward.
+            checked_url, addresses = resolve_and_validate(target)
+            session = requests.Session()
+            parsed = urlparse(checked_url)
+            adapter = _PinnedAddressAdapter(
+                (parsed.hostname or "").lower(), addresses[0], pool_maxsize=1
+            )
+            session.mount(f"{parsed.scheme}://", adapter)
+            try:
+                return session.get(
+                    checked_url, timeout=timeout_sec, headers=headers, allow_redirects=False
+                )
+            finally:
+                session.close()
+
+        response = request_with_retry(_get, method=method, policy=policy)
         if response.status_code not in {301, 302, 303, 307, 308}:
             return response
         location = response.headers.get("Location")
         if not location:
             return response
-        from urllib.parse import urljoin
-
         current = assert_fetchable_url(urljoin(current, location))
 
     raise UnsafeUrlError(f"too many redirects for {url}")

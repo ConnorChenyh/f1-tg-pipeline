@@ -99,9 +99,13 @@ def _validate_digest_payload(payload: Any) -> dict[str, Any]:
         if ordinal is not None and not isinstance(ordinal, str):
             item["ordinal"] = str(ordinal)
 
+    # Absent/null must be normalised here: digest_to_markdown consumes these as
+    # text and a None reaches it as a TypeError.
     for key in ("hook", "risk_note"):
         value = payload.get(key)
-        if value is not None and not isinstance(value, str):
+        if value is None:
+            payload[key] = ""
+        elif not isinstance(value, str):
             payload[key] = str(value)
 
     for index, item in enumerate(items, start=1):
@@ -109,20 +113,16 @@ def _validate_digest_payload(payload: Any) -> dict[str, Any]:
             if not isinstance(item.get(key), str):
                 raise ResponseShapeError(f"items[{index}].{key} must be a string")
 
-    hashtags = payload.get("hashtags")
-    if hashtags is not None:
-        if not isinstance(hashtags, list):
-            raise ResponseShapeError("'hashtags' must be a JSON array when present")
-        for tag in hashtags:
-            if not isinstance(tag, str):
-                raise ResponseShapeError("'hashtags' entries must be strings")
-    sources = payload.get("sources")
-    if sources is not None:
-        if not isinstance(sources, list):
-            raise ResponseShapeError("'sources' must be a JSON array when present")
-        for source in sources:
-            if not isinstance(source, str):
-                raise ResponseShapeError("'sources' entries must be strings")
+    for key in ("hashtags", "sources"):
+        value = payload.get(key)
+        if value is None:
+            payload[key] = []
+            continue
+        if not isinstance(value, list):
+            raise ResponseShapeError(f"'{key}' must be a JSON array when present")
+        for entry in value:
+            if not isinstance(entry, str):
+                raise ResponseShapeError(f"'{key}' entries must be strings")
     return payload
 
 
@@ -154,11 +154,12 @@ def _coerce_reviewed_draft(draft: Any) -> dict[str, Any]:
         clean_items.append(entry)
     repaired["items"] = clean_items
     for key in ("hook", "risk_note"):
-        if repaired.get(key) is not None:
-            repaired[key] = str(repaired[key])
+        value = repaired.get(key)
+        repaired[key] = "" if value is None else str(value)
     for key in ("hashtags", "sources"):
         value = repaired.get(key)
         if value is None:
+            repaired[key] = []
             continue
         if isinstance(value, list):
             repaired[key] = [str(item) for item in value]
@@ -183,6 +184,34 @@ def _keep_valid_draft(candidate: Any, fallback: dict[str, Any], stage: str) -> d
             exc,
         )
         return fallback
+
+
+def _run_review_stage(
+    review: Any,
+    fallback: dict[str, Any],
+    stage: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Run a review stage, keeping the previous draft if it returns garbage.
+
+    A review pass is a rewrite of an already-valid draft. If it raises while
+    parsing or validating its own reply, the draft that already exists is still
+    good, so the exception must not cost it. Non-format errors are logged with
+    their type so they are not silently invisible.
+    """
+    try:
+        reviewed, notes = review()
+    except ResponseShapeError as exc:
+        logger.warning("%s returned an unusable draft (%s); keeping the previous draft", stage, exc)
+        return fallback, []
+    except (ValueError, TypeError, KeyError) as exc:
+        logger.warning(
+            "%s failed to produce a usable draft (%s: %s); keeping the previous draft",
+            stage,
+            type(exc).__name__,
+            exc,
+        )
+        return fallback, []
+    return _keep_valid_draft(reviewed, fallback, stage), notes
 
 
 def generate_digest(
@@ -238,16 +267,19 @@ def generate_digest(
     fact_check_notes: list[str] = []
     if fact_check_enabled:
         draft_before_fact_check = draft
-        draft, fact_check_notes = fact_check_digest(
-            client,
-            draft,
-            topics,
-            run_context,
-            digest_title,
-            grounding=grounding,
-            quality_issues=issue_dicts(quality_issues),
+        draft, fact_check_notes = _run_review_stage(
+            lambda: fact_check_digest(
+                client,
+                draft,
+                topics,
+                run_context,
+                digest_title,
+                grounding=grounding,
+                quality_issues=issue_dicts(quality_issues),
+            ),
+            draft_before_fact_check,
+            "fact check",
         )
-        draft = _keep_valid_draft(draft, draft_before_fact_check, "fact check")
 
     review_notes: list[str] = []
     if final_review_enabled:
@@ -260,16 +292,19 @@ def generate_digest(
             max_item_chars=item_max_chars,
         )
         draft_before_final_review = draft
-        draft, review_notes = final_review_digest(
-            client,
-            draft,
-            topics,
-            run_context,
-            digest_title,
-            grounding=grounding,
-            quality_issues=issue_dicts(review_quality_issues),
+        draft, review_notes = _run_review_stage(
+            lambda: final_review_digest(
+                client,
+                draft,
+                topics,
+                run_context,
+                digest_title,
+                grounding=grounding,
+                quality_issues=issue_dicts(review_quality_issues),
+            ),
+            draft_before_final_review,
+            "final review",
         )
-        draft = _keep_valid_draft(draft, draft_before_final_review, "final review")
 
     final_quality_issues = validate_digest(
         draft,

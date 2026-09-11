@@ -329,3 +329,80 @@ class ReviewFailurePreservesDraftTests(unittest.TestCase):
         )
 
         self.assertEqual(result["hook"], "123")
+
+
+class NullFieldContractTests(unittest.TestCase):
+    """C5: null consumed fields must be normalised, not left to crash rendering."""
+
+    def _base(self) -> dict:
+        return {"items": [{"ordinal": "一", "headline": "标题", "content": "正文"}]}
+
+    def test_validator_normalises_null_fields(self) -> None:
+        for field in ("hashtags", "hook", "sources", "risk_note"):
+            with self.subTest(field=field):
+                payload = self._base()
+                payload[field] = None
+                out = _validate_digest_payload(payload)
+                self.assertIsInstance(out[field], (str, list))
+
+    def test_review_coercion_normalises_null_fields(self) -> None:
+        from generator.digest_writer import _coerce_reviewed_draft
+
+        for field in ("hashtags", "hook", "sources", "risk_note"):
+            with self.subTest(field=field):
+                payload = self._base()
+                payload[field] = None
+                out = _coerce_reviewed_draft(payload)
+                self.assertIsInstance(out[field], (str, list))
+
+    def test_null_fields_survive_markdown_rendering(self) -> None:
+        from generator.digest_writer import digest_to_markdown
+
+        for field in ("hashtags", "hook", "sources", "risk_note"):
+            with self.subTest(field=field):
+                payload = self._base()
+                payload[field] = None
+                normalised = _validate_digest_payload(payload)
+                digest_to_markdown(normalised)  # must not raise
+
+
+class ReviewStageFailureTests(unittest.TestCase):
+    """C5: a review stage that raises must not cost the written draft."""
+
+    def test_review_stage_exception_keeps_the_previous_draft(self) -> None:
+        from generator.digest_writer import _run_review_stage
+
+        previous = {"items": [{"ordinal": "一", "headline": "标题", "content": "正文"}]}
+
+        def explode() -> Any:
+            raise ValueError("review returned []")
+
+        kept, notes = _run_review_stage(explode, previous, "fact check")
+
+        self.assertEqual(kept["items"][0]["content"], "正文")
+        self.assertEqual(notes, [])
+
+    def test_review_stage_shape_error_keeps_the_previous_draft(self) -> None:
+        from generator.digest_writer import _run_review_stage
+
+        previous = {"items": [{"ordinal": "一", "headline": "标题", "content": "正文"}]}
+
+        def bad_shape() -> Any:
+            return {"items": [None]}, ["note"]
+
+        kept, _ = _run_review_stage(bad_shape, previous, "final review")
+
+        self.assertEqual(kept["items"][0]["content"], "正文")
+
+    def test_good_review_replaces_the_draft(self) -> None:
+        from generator.digest_writer import _run_review_stage
+
+        previous = {"items": [{"ordinal": "一", "headline": "旧", "content": "旧正文"}]}
+
+        def good() -> Any:
+            return {"items": [{"ordinal": "一", "headline": "新", "content": "新正文"}]}, ["n"]
+
+        kept, notes = _run_review_stage(good, previous, "final review")
+
+        self.assertEqual(kept["items"][0]["headline"], "新")
+        self.assertEqual(notes, ["n"])

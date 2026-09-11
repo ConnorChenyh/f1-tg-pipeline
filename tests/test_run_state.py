@@ -363,7 +363,9 @@ class TelemetryInMetaTests(unittest.TestCase):
         from generator.deepseek_client import TokenUsage
 
         client.usage = TokenUsage()
+        client.usage.begin_call("topics")
         client.usage.record("topics", SimpleNamespace(prompt_tokens=900, completion_tokens=150), 2.5)
+        client.usage.begin_call("digest")
         client.usage.record("digest", SimpleNamespace(prompt_tokens=3000, completion_tokens=600), 7.5)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -399,9 +401,10 @@ class TelemetryInMetaTests(unittest.TestCase):
         self.assertIn("model_usage", meta, "meta.json must carry the run's model cost")
         usage = meta["model_usage"]
         self.assertEqual(usage["total_tokens"], 4650)
-        self.assertEqual(usage["calls"], 2)
+        self.assertEqual(usage["logical_calls"], 2)
+        self.assertEqual(usage["requests"], 2)
         self.assertEqual(sorted(usage["by_stage"]), ["digest", "topics"])
-        self.assertGreater(usage["latency_sec"], 0)
+        self.assertGreater(usage["request_latency_sec"], 0)
 
 
 from types import SimpleNamespace  # noqa: E402  (used by the test above)

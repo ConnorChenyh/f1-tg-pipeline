@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import unittest
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ import httpx
 from analyzer.net import RetryPolicy
 from generator.deepseek_client import (
     DeepSeekClient,
+    ResponseShapeError,
     RunDeadlineExceeded,
     TokenUsage,
     _is_retryable,
@@ -90,7 +92,8 @@ class TelemetryTests(unittest.TestCase):
 
         usage = client.usage.to_dict()
 
-        self.assertEqual(usage["calls"], 1)
+        self.assertEqual(usage["logical_calls"], 1)
+        self.assertEqual(usage["requests"], 1)
         self.assertEqual(usage["prompt_tokens"], 1200)
         self.assertEqual(usage["completion_tokens"], 300)
         self.assertEqual(usage["total_tokens"], 1500)
@@ -110,8 +113,10 @@ class TelemetryTests(unittest.TestCase):
                 client.chat_json("m", "s", "p", stage="topics")
 
         usage = client.usage.to_dict()
-        self.assertEqual(usage["failed_calls"], 1)
-        self.assertEqual(usage["calls"], 0)
+        # Two real requests were issued (initial + one retry); both failed.
+        self.assertEqual(usage["requests"], 2)
+        self.assertEqual(usage["failed_requests"], 2)
+        self.assertEqual(usage["logical_calls"], 1)
         self.assertEqual(usage["retries"], 1, "one retry was consumed")
         self.assertIn("topics", usage["by_stage"])
 
@@ -137,19 +142,23 @@ class TelemetryTests(unittest.TestCase):
             client.chat_json("m", "s", "p", stage="digest")
 
         self.assertEqual(client.usage.to_dict()["total_tokens"], 0)
-        self.assertEqual(client.usage.to_dict()["calls"], 1)
+        self.assertEqual(client.usage.to_dict()["requests"], 1)
 
 
 class TokenUsageUnitTests(unittest.TestCase):
     def test_totals_and_stage_keys_are_serialisable(self) -> None:
         usage = TokenUsage()
+        usage.begin_call("a")
         usage.record("a", SimpleNamespace(prompt_tokens=10, completion_tokens=5), 1.5)
+        usage.begin_call("b")
         usage.record("b", None, 0.5, retries=2, failed=True)
 
         payload = usage.to_dict()
 
+        self.assertEqual(payload["logical_calls"], 2)
+        self.assertEqual(payload["requests"], 2)
+        self.assertEqual(payload["failed_requests"], 1)
         self.assertEqual(payload["prompt_tokens"], 10)
-        self.assertEqual(payload["failed_calls"], 1)
         self.assertEqual(payload["retries"], 2)
         self.assertEqual(sorted(payload["by_stage"]), ["a", "b"])
 
@@ -198,7 +207,8 @@ class RunDeadlineTests(unittest.TestCase):
                 client.chat_json("m", "s", "p", stage="digest")
 
         self.assertEqual(calls["n"], 0, "no request may be attempted once the budget is spent")
-        self.assertEqual(client.usage.to_dict()["failed_calls"], 1)
+        # A check that fires before any request must not be counted as a request.
+        self.assertEqual(client.usage.to_dict()["requests"], 0)
 
     def test_retry_is_skipped_when_it_would_exceed_the_budget(self) -> None:
         client = self._client_with(60)
@@ -317,3 +327,152 @@ class DeadlineIntegrationTests(unittest.TestCase):
                 code = run_module.main()
 
         self.assertEqual(code, 1, "a spent budget during writing must fail cleanly")
+
+
+class RequestBoundaryTelemetryTests(unittest.TestCase):
+    """C6: every real HTTP request must be counted, including failures."""
+
+    def _client(self, max_retries: int = 2) -> DeepSeekClient:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            return DeepSeekClient(
+                {"deepseek": {"max_retries": max_retries, "max_total_seconds": 0}}
+            )
+
+    def _run(self, client: DeepSeekClient, effect, validator=None) -> int:
+        real = {"n": 0}
+
+        def counting(**kwargs: Any) -> Any:
+            real["n"] += 1
+            return effect(**kwargs)
+
+        with patch.object(client.client.chat.completions, "create", side_effect=counting), \
+             patch("generator.deepseek_client.time.sleep"):
+            try:
+                client.chat_json("m", "s", "p", validator=validator, stage="s")
+            except Exception:
+                pass
+        return real["n"]
+
+    def test_failed_request_is_counted(self) -> None:
+        client = self._client()
+        seen = {"n": 0}
+
+        def flaky(**kwargs: Any) -> Any:
+            seen["n"] += 1
+            if seen["n"] == 1:
+                raise httpx.ConnectError("down")
+            return _ok()
+
+        real = self._run(client, flaky)
+        usage = client.usage.to_dict()
+
+        self.assertEqual(usage["requests"], real, "requests must equal real HTTP attempts")
+        self.assertEqual(usage["failed_requests"], 1)
+        self.assertEqual(usage["logical_calls"], 1, "one chat_json call, not one per attempt")
+
+    def test_schema_repair_is_not_double_counted(self) -> None:
+        client = self._client()
+        payloads = [{"wrong": True}, {"ok": True}]
+
+        def effect(**kwargs: Any) -> Any:
+            return _ok(json.dumps(payloads.pop(0)))
+
+        def validator(payload: Any) -> Any:
+            if "wrong" in payload:
+                raise ResponseShapeError("expected other shape")
+            return payload
+
+        real = self._run(client, effect, validator=validator)
+        usage = client.usage.to_dict()
+
+        self.assertEqual(usage["requests"], real)
+        self.assertEqual(usage["requests"], 2)
+        self.assertEqual(usage["failed_requests"], 1)
+
+    def test_tokens_accumulate_only_from_answered_requests(self) -> None:
+        client = self._client()
+        seen = {"n": 0}
+
+        def effect(**kwargs: Any) -> Any:
+            seen["n"] += 1
+            if seen["n"] == 1:
+                raise httpx.ConnectError("down")
+            return _ok(prompt=100, completion=20)
+
+        self._run(client, effect)
+        usage = client.usage.to_dict()
+
+        self.assertEqual(usage["requests"], 2)
+        self.assertEqual(usage["total_tokens"], 120, "the failed request has no usage to add")
+
+
+class JsonModeMemoryTests(unittest.TestCase):
+    """C7: a provider rejection must be remembered across calls."""
+
+    def test_rejection_is_not_retried_on_the_next_call(self) -> None:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            # One retry, so the first call can fall back to no response_format.
+            client = DeepSeekClient(
+                {"deepseek": {"max_retries": 1, "force_json_object": True, "max_total_seconds": 0}}
+            )
+        sent: list[bool] = []
+
+        def effect(**kwargs: Any) -> Any:
+            sent.append("response_format" in kwargs)
+            if "response_format" in kwargs:
+                raise Exception("response_format json_object is not supported")
+            return _ok()
+
+        with patch.object(client.client.chat.completions, "create", side_effect=effect), \
+             patch("generator.deepseek_client.time.sleep"):
+            for stage in ("a", "b", "c"):
+                client.chat_json("m", "s", "p", stage=stage)
+
+        self.assertEqual(
+            sent,
+            [True, False, False, False],
+            "the rejection must be remembered after the first fallback",
+        )
+
+
+class BudgetEnforcedInsideLoopTests(unittest.TestCase):
+    """C3: the budget must be enforced at every request, not only at entry."""
+
+    def test_repair_loop_cannot_outlive_the_budget(self) -> None:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            client = DeepSeekClient(
+                {
+                    "deepseek": {
+                        "max_retries": 20,
+                        "force_json_object": False,
+                        "max_total_seconds": 0.12,
+                        "retry_backoff_sec": 0.001,
+                        "retry_max_backoff_sec": 0.002,
+                    }
+                }
+            )
+        real = {"n": 0}
+
+        def slow(**kwargs: Any) -> Any:
+            real["n"] += 1
+            time.sleep(0.1)  # real delay: each request eats the budget
+            return _ok("{}")
+
+        def validator(payload: Any) -> Any:
+            raise ResponseShapeError("wrong shape")
+
+        with patch.object(client.client.chat.completions, "create", side_effect=slow):
+            with self.assertRaises(RunDeadlineExceeded):
+                client.chat_json("m", "s", "p", validator=validator, stage="digest")
+
+        # Without the in-loop check this would have run all 21 attempts.
+        self.assertLess(real["n"], 20, "the budget must stop the repair loop")
+        self.assertEqual(client.usage.to_dict()["requests"], real["n"])
+
+    def test_generous_budget_is_not_disturbed(self) -> None:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            client = DeepSeekClient(
+                {"deepseek": {"max_retries": 1, "force_json_object": False, "max_total_seconds": 60}}
+            )
+        with patch.object(client.client.chat.completions, "create", return_value=_ok()):
+            self.assertEqual(client.chat_json("m", "s", "p", stage="topics"), {"ok": True})

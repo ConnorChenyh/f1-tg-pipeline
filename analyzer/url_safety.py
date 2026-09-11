@@ -104,3 +104,29 @@ def is_fetchable_url(url: str, *, resolve_dns: bool = True) -> bool:
 def assert_redirect_target(url: str, *, resolve_dns: bool = True) -> str:
     """Validate a redirect target, which is attacker-influenced too."""
     return assert_fetchable_url(url, resolve_dns=resolve_dns)
+
+
+def resolve_and_validate(url: str) -> tuple[str, list[str]]:
+    """Validate a URL and return the addresses it resolved to.
+
+    The caller must connect to one of these addresses: validating and then
+    letting the transport resolve the name again leaves a window in which the
+    second answer can differ from the one that was checked.
+    """
+    raw = assert_fetchable_url(url, resolve_dns=False)
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").strip().lower()
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise UnsafeUrlError(f"cannot resolve {host}: {exc}") from exc
+    addresses: list[str] = []
+    for info in infos:
+        resolved = info[4][0]
+        if _is_blocked_ip(resolved):
+            raise UnsafeUrlError(f"{host} resolves to blocked address {resolved}")
+        if resolved not in addresses:
+            addresses.append(resolved)
+    if not addresses:
+        raise UnsafeUrlError(f"{host} did not resolve to any address")
+    return raw, addresses

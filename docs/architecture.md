@@ -257,10 +257,21 @@ is validated by `analyzer/url_safety.py` before the next request.
 is real. Without that, one logical call could become up to six requests. It also
 sets an explicit `timeout_sec`, because the SDK default read timeout is 600s.
 
-`TokenUsage` accumulates prompt/completion tokens, latency, retries and failed
-calls per stage, including calls that ultimately failed. `run.py` writes it into
-`drafts/digest/meta.json` as `model_usage`, so the cost of a run is inspectable
-instead of invisible.
+`TokenUsage` counts at the HTTP request boundary and keeps three separate numbers,
+because conflating them hides retry behaviour:
+
+- `logical_calls` - `chat_json` invocations
+- `requests` - HTTP requests actually issued (retries and the JSON-mode fallback
+  are separate requests and are counted)
+- `failed_requests` - requests that errored
+
+Tokens are attributed only to responses that were received. `run.py` writes the
+result into `drafts/digest/meta.json` as `model_usage`, so the cost of a run is
+inspectable instead of invisible.
+
+`deepseek.max_total_seconds` caps the whole run's model time, checked before every
+request rather than once per call, and the per-request timeout is clamped to the
+remaining budget so an attempt cannot overshoot it.
 
 ## Fetch Safety
 
@@ -272,6 +283,12 @@ IPv6 loopback and unique-local ranges. DNS is resolved and checked so a public
 name pointing at a private address is rejected too. Redirect targets are validated
 per hop. `fetch_article_content` returns `fetch_status: "unsafe"` for these.
 
+Validation is bound to the connection: `article_fetcher` resolves and checks the
+address itself, then dials **that** address (via a pinned-address HTTP adapter)
+while keeping the original hostname for TLS verification. Checking a name and then
+letting the transport resolve it again would leave a window in which the second
+answer differs from the one that was checked.
+
 ## Output Retention
 
 `analyzer/retention.py` removes old pipeline run directories. It is deliberately
@@ -281,9 +298,14 @@ narrow:
   folders are never touched
 - shared state files (`topic_history.json`, `story_memory.sqlite3`, standings
   cache, pending queue, active-run pointer) are never candidates
-- a run referenced by `pending_telegram_deliveries.json` or `active_run.json` is
-  always kept, so compensation and resume cannot break
+- the pending queue is located using the same `telegram.pending_deliveries_path`
+  setting the publisher uses
+- a run referenced by that queue or by `active_run.json` is always kept, so
+  compensation and resume cannot break
 - at least `keep_min_runs` runs are always kept
+- if the reference state cannot be established - the queue is unreadable,
+  truncated, or has an unexpected shape - **nothing is deleted at all**; not
+  knowing whether a run is referenced is not the same as knowing it is not
 
 ## Persistent State And Test Modes
 

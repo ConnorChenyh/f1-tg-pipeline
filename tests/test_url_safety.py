@@ -13,6 +13,13 @@ from analyzer.url_safety import (
 PUBLIC = "https://www.motorsport.com/f1/news/example"
 
 
+def _no_dns(url: str, *, resolve_dns: bool = True) -> str:
+    """Real validation, minus the live DNS lookup (pinned by _resolves_to)."""
+    from analyzer.url_safety import assert_fetchable_url as real
+
+    return real(url, resolve_dns=False) if "example.com" in url else real(url, resolve_dns=resolve_dns)
+
+
 def _resolves_to(*addresses: str):
     """Patch getaddrinfo so tests never depend on real DNS."""
 
@@ -163,13 +170,23 @@ class FetchIntegrationTests(unittest.TestCase):
             calls.append(target)
             return FakeResponse(302, {"Location": "http://127.0.0.1/admin"})
 
-        with patch.object(article_fetcher.requests, "get", side_effect=fake_request):
+        # Pin the start host's DNS: without this the test depends on real
+        # resolution, and a DNS outage raises the same UnsafeUrlError before any
+        # request is made, so the call-count assertion fails for the wrong reason.
+        # The fetcher builds its own Session so it can pin the checked address,
+        # so the transport seam to replace is Session.get, not requests.get.
+        with _resolves_to("93.184.216.34"), \
+             patch("requests.Session.get", side_effect=lambda url, **kw: fake_request(url, **kw)):
             with self.assertRaises(UnsafeUrlError):
                 article_fetcher._fetch_following_safe_redirects(
                     "https://example.com/article", 5, {}, None, "article"
                 )
 
-        self.assertEqual(len(calls), 1, "the redirect target must never be requested")
+        self.assertEqual(
+            calls,
+            ["https://example.com/article"],
+            "only the start URL may be requested; the redirect target never",
+        )
 
 
 if __name__ == "__main__":

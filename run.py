@@ -376,6 +376,16 @@ def main() -> int:
         # Record the set so a resumed run can tell that its own digest was just
         # compensated and must not be sent a second time.
         compensated_dirs = queued_before - pending_output_dirs(ROOT, config)
+        # Persist delivery here, at the boundary where it becomes true. Waiting
+        # until the run is selected and prepared leaves a window in which any
+        # later failure makes the digest deliverable a second time.
+        for relative in sorted(compensated_dirs):
+            target = ROOT / relative
+            try:
+                if mark_delivered(target) is not None:
+                    logging.info("Recorded delivery for compensated run %s", relative)
+            except Exception as exc:
+                logging.warning("Could not record delivery for %s: %s", relative, exc)
     else:
         compensated_dirs = set()
 
@@ -441,8 +451,13 @@ def main() -> int:
         init_story_db(ROOT, config)
         prune_story_db(ROOT, config, run_context.generated_at)
         # Never prunes a run referenced by the pending queue or the active-run
-        # pointer, and ignores non-pipeline directories.
-        prune_output_runs(ROOT / "output", config, run_context.generated_at)
+        # pointer, ignores non-pipeline directories, and deletes nothing when the
+        # reference state cannot be established. Housekeeping must not be able to
+        # abort the run.
+        try:
+            prune_output_runs(ROOT / "output", config, run_context.generated_at, root=ROOT)
+        except Exception as exc:
+            logging.warning("Output retention skipped due to an unexpected error: %s", exc)
 
     if output_dir is not None:
         state = prior_state

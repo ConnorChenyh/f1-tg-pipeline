@@ -302,10 +302,18 @@ print(json.dumps(meta.get("model_usage"), ensure_ascii=False, indent=2))
 PY
 ```
 
-It reports `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_sec`,
-`calls`, `failed_calls`, `retries` and a `by_stage` breakdown (`topics`, `digest`).
-Failed calls and consumed retries are counted, so a prompt that degrades into
-retry loops is visible.
+It reports three distinct counts plus token totals and a `by_stage` breakdown:
+
+- `logical_calls` - how many times `chat_json` was entered
+- `requests` - how many HTTP requests were actually issued, retries and the
+  JSON-mode fallback included
+- `failed_requests` - how many of those errored
+- `prompt_tokens` / `completion_tokens` / `total_tokens` - only from responses
+  that were actually received
+- `request_latency_sec` - summed per-request latency
+
+A prompt that degrades into retry loops shows up as `requests` far above
+`logical_calls`.
 
 ### Retries and timeouts
 

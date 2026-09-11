@@ -20,21 +20,52 @@ JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
 
 @dataclass
 class TokenUsage:
-    """Accumulated model usage for one run, including failed calls."""
+    """Model usage for one run, counted at the HTTP request boundary.
 
+    Three distinct numbers, deliberately not conflated:
+
+    - ``logical_calls``: how many times ``chat_json`` was entered.
+    - ``requests``: how many HTTP requests were actually issued, including
+      retries and the JSON-mode fallback request.
+    - ``failed_requests``: how many of those requests errored.
+
+    Token totals only cover responses that were actually received; a request
+    that failed before responding has no usage to attribute.
+    """
+
+    logical_calls: int = 0
+    requests: int = 0
+    failed_requests: int = 0
+    retries: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    calls: int = 0
-    failed_calls: int = 0
-    retries: int = 0
     latency_sec: float = 0.0
+    request_latency_sec: float = 0.0
     _by_stage: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    def begin_call(self, stage: str) -> None:
+        self.logical_calls += 1
+        entry = self._stage(stage)
+        entry["logical_calls"] += 1
+
+    def _stage(self, stage: str) -> dict[str, float]:
+        return self._by_stage.setdefault(
+            stage,
+            {
+                "logical_calls": 0,
+                "requests": 0,
+                "failed_requests": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "request_latency_sec": 0.0,
+            },
+        )
 
     def record(
         self,
         stage: str,
         usage: Any,
-        latency_sec: float,
+        request_latency_sec: float,
         retries: int = 0,
         failed: bool = False,
     ) -> None:
@@ -42,35 +73,40 @@ class TokenUsage:
         completion = int(getattr(usage, "completion_tokens", 0) or 0) if usage is not None else 0
         self.prompt_tokens += prompt
         self.completion_tokens += completion
-        self.latency_sec += latency_sec
+        self.requests += 1
+        self.request_latency_sec += request_latency_sec
+        self.latency_sec += request_latency_sec
         self.retries += retries
         if failed:
-            self.failed_calls += 1
-        else:
-            self.calls += 1
-        entry = self._by_stage.setdefault(stage, {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "latency_sec": 0.0})
-        entry["calls"] += 1
+            self.failed_requests += 1
+        entry = self._stage(stage)
+        entry["requests"] += 1
         entry["prompt_tokens"] += prompt
         entry["completion_tokens"] += completion
-        entry["latency_sec"] += latency_sec
+        entry["request_latency_sec"] += request_latency_sec
+        if failed:
+            entry["failed_requests"] += 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "calls": self.calls,
-            "failed_calls": self.failed_calls,
+            "logical_calls": self.logical_calls,
+            "requests": self.requests,
+            "failed_requests": self.failed_requests,
             "retries": self.retries,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.prompt_tokens + self.completion_tokens,
-            "latency_sec": round(self.latency_sec, 2),
+            "request_latency_sec": round(self.request_latency_sec, 2),
             "by_stage": {
                 stage: {
-                    "calls": int(values["calls"]),
-                    "prompt_tokens": int(values["prompt_tokens"]),
-                    "completion_tokens": int(values["completion_tokens"]),
-                    "latency_sec": round(values["latency_sec"], 2),
+                    "logical_calls": int(v["logical_calls"]),
+                    "requests": int(v["requests"]),
+                    "failed_requests": int(v["failed_requests"]),
+                    "prompt_tokens": int(v["prompt_tokens"]),
+                    "completion_tokens": int(v["completion_tokens"]),
+                    "request_latency_sec": round(v["request_latency_sec"], 2),
                 }
-                for stage, values in sorted(self._by_stage.items())
+                for stage, v in sorted(self._by_stage.items())
             },
         }
 
@@ -89,6 +125,10 @@ class RunDeadlineExceeded(RuntimeError):
     A per-request timeout bounds one call; this bounds the whole run so that
     exhausted retries cannot keep a scheduled job hanging.
     """
+
+
+class JsonModeUnsupported(RuntimeError):
+    """The provider rejected response_format; retry the same request without it."""
 
 
 class ModelOutputError(ValueError):
@@ -112,7 +152,7 @@ def _is_retryable(exc: Exception) -> bool:
     broken connection, but a raised httpx transport error can also reach here,
     and name matching alone misclassified it as a permanent caller error.
     """
-    if isinstance(exc, ModelOutputError):
+    if isinstance(exc, (ModelOutputError, JsonModeUnsupported)):
         return True
     try:
         import httpx
@@ -156,17 +196,21 @@ class DeepSeekClient:
         # max_retries=0 is deliberate: the SDK would otherwise retry twice
         # underneath this client's own retry loop, turning one logical call into
         # up to six requests and hiding the real attempt count.
+        self.request_timeout = float(deepseek_cfg.get("timeout_sec", 120))
         self.client = OpenAI(
             api_key=api_key,
             base_url=deepseek_cfg.get("base_url", "https://api.deepseek.com/v1"),
             max_retries=0,
-            timeout=float(deepseek_cfg.get("timeout_sec", 120)),
+            timeout=self.request_timeout,
         )
         self.model_topics = deepseek_cfg.get("model_topics", "deepseek-flash")
         self.model_writer = deepseek_cfg.get("model_writer", "deepseek-flash")
         self.max_retries = int(deepseek_cfg.get("max_retries", 1))
         self.temperature = float(deepseek_cfg.get("temperature", 0.2))
         self.force_json_object = bool(deepseek_cfg.get("force_json_object", True))
+        # Set once the API rejects response_format so we stop asking for it. It
+        # must only change here or on a real rejection, never once per call.
+        self._json_object_disabled = not self.force_json_object
         self.retry_policy = RetryPolicy(
             attempts=self.max_retries + 1,
             backoff_sec=float(deepseek_cfg.get("retry_backoff_sec", 1.0)),
@@ -186,12 +230,9 @@ class DeepSeekClient:
     def _check_deadline(self) -> None:
         remaining = self.deadline_remaining()
         if remaining is not None and remaining <= 0:
-            self.usage.record("deadline", None, 0.0, failed=True)
             raise RunDeadlineExceeded(
                 "model time budget exhausted for this run; aborting instead of retrying"
             )
-        # Set once the API rejects response_format so we stop asking for it.
-        self._json_object_disabled = not self.force_json_object
 
     def _extract_json(self, content: str) -> Any:
         content = content.strip()
@@ -216,7 +257,15 @@ class DeepSeekClient:
 
         raise ValueError("Model response does not contain valid JSON")
 
+    def _request_timeout(self) -> float:
+        """The configured timeout, shortened to whatever budget is left."""
+        remaining = self.deadline_remaining()
+        if remaining is None:
+            return self.request_timeout
+        return max(0.001, min(self.request_timeout, remaining))
+
     def _create_completion(self, model: str, system_prompt: str, user_prompt: str):
+        self._check_deadline()
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -224,6 +273,7 @@ class DeepSeekClient:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": self.temperature,
+            "timeout": self._request_timeout(),
         }
         if not self._json_object_disabled:
             kwargs["response_format"] = {"type": "json_object"}
@@ -233,10 +283,12 @@ class DeepSeekClient:
         except Exception as exc:
             if "response_format" not in kwargs or not _json_object_unsupported(exc):
                 raise
-            logger.warning("response_format json_object rejected; retrying without it: %s", exc)
+            # Remember the rejection and let the single retry loop re-issue the
+            # request, so the fallback is budgeted, counted and backoff-ed like
+            # any other attempt instead of slipping in an uncounted extra call.
+            logger.warning("response_format json_object rejected: %s", exc)
             self._json_object_disabled = True
-            kwargs.pop("response_format")
-            return self.client.chat.completions.create(**kwargs)
+            raise JsonModeUnsupported(str(exc)) from exc
 
     def _repair_prompt(self, user_prompt: str, error: Exception, attempt: int) -> str:
         return (
@@ -268,18 +320,16 @@ class DeepSeekClient:
         repair_attempt = 0
         used_attempts = 0
 
-        self._check_deadline()
-        started = time.monotonic()
+        self.usage.begin_call(stage)
         for attempt in range(attempts):
             used_attempts = attempt + 1
+            attempt_started = time.monotonic()
+            response: Any = None
             try:
+                # The request is issued here, so a failure below means a real
+                # request was made and consumed budget.
+                request_sent = True
                 response = self._create_completion(model, system_prompt, current_prompt)
-                self.usage.record(
-                    stage,
-                    getattr(response, "usage", None),
-                    time.monotonic() - started,
-                    retries=attempt,
-                )
                 content = response.choices[0].message.content or ""
                 try:
                     payload = self._extract_json(content)
@@ -287,11 +337,29 @@ class DeepSeekClient:
                     # Retryable: the model produced something unusable.
                     raise ModelOutputError(str(exc)) from exc
                 if validator is not None:
-                    return validator(payload)
+                    payload = validator(payload)
+                self.usage.record(
+                    stage,
+                    getattr(response, "usage", None),
+                    time.monotonic() - attempt_started,
+                    retries=attempt,
+                )
+                self.last_used_attempts = used_attempts
                 return payload
+            except RunDeadlineExceeded:
+                # Budget expiry is a decision, not a failure to retry, and must
+                # reach the caller as itself.
+                raise
             except ResponseShapeError as exc:
                 last_error = exc
                 last_error_kind = "schema"
+                self.usage.record(
+                    stage,
+                    getattr(response, "usage", None),
+                    time.monotonic() - attempt_started,
+                    retries=attempt,
+                    failed=True,
+                )
                 repair_attempt += 1
                 current_prompt = self._repair_prompt(user_prompt, exc, repair_attempt)
                 logger.warning(
@@ -304,7 +372,19 @@ class DeepSeekClient:
                 last_error = exc
                 # Distinguish "the model gave us junk" from "the call itself
                 # failed", because only the former means the provider answered.
-                last_error_kind = "model output" if isinstance(exc, ModelOutputError) else "transport"
+                if isinstance(exc, (ModelOutputError, JsonModeUnsupported)):
+                    last_error_kind = "model output"
+                else:
+                    last_error_kind = "transport"
+                # Recorded here for transport/model-output failures; the schema
+                # branch above records its own so an attempt is never counted twice.
+                self.usage.record(
+                    stage,
+                    getattr(response, "usage", None),
+                    time.monotonic() - attempt_started,
+                    retries=attempt,
+                    failed=True,
+                )
                 logger.warning(
                     "DeepSeek call failed (attempt %d/%d): %s",
                     used_attempts,
@@ -330,7 +410,6 @@ class DeepSeekClient:
                     logger.warning("Retrying DeepSeek call in %.1fs", delay)
                     time.sleep(delay)
 
-        self.usage.record(stage, None, time.monotonic() - started, retries=used_attempts - 1, failed=True)
         self.last_used_attempts = used_attempts
         raise RuntimeError(
             f"DeepSeek request failed after {used_attempts} attempt(s) "

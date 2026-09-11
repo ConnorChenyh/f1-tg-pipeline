@@ -142,17 +142,61 @@ class RetentionTests(unittest.TestCase):
             removed = prune_output_runs(Path(tmp) / "nope", _config(), NOW)
             self.assertEqual(removed, [])
 
-    def test_corrupt_reference_file_does_not_crash(self) -> None:
+    def test_unreadable_reference_file_deletes_nothing(self) -> None:
+        """Not knowing whether a run is referenced is not the same as not referenced."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _make_run(root, "2026-08-01_120000", 41)
             (root / "active_run.json").write_text("{broken", encoding="utf-8")
 
-            # An unreadable reference is treated as no reference; the run is old,
-            # so it is removed, but the call must not raise.
             removed = prune_output_runs(root, _config(keep_min_runs=0), NOW)
 
-            self.assertEqual(removed, ["2026-08-01_120000"])
+            self.assertEqual(removed, [], "a corrupt reference must make pruning decline to act")
+            self.assertTrue((root / "2026-08-01_120000").exists())
+
+    def test_reference_file_with_wrong_shape_deletes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_run(root, "2026-08-01_120000", 41)
+            (root / "active_run.json").write_text("[]", encoding="utf-8")
+
+            removed = prune_output_runs(root, _config(keep_min_runs=0), NOW)
+
+            self.assertEqual(removed, [], "an unexpected shape must not be read as 'no reference'")
+
+    def test_custom_pending_queue_path_is_respected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            out = repo / "output"
+            out.mkdir()
+            _make_run(out, "2026-08-01_120000", 41)
+            (out / "my_queue.json").write_text(
+                json.dumps({"deliveries": [{"output_dir": "output/2026-08-01_120000"}]}),
+                encoding="utf-8",
+            )
+            config = _config(keep_min_runs=0)
+            config["telegram"] = {"pending_deliveries_path": "output/my_queue.json"}
+
+            removed = prune_output_runs(out, config, NOW, root=repo)
+
+            self.assertEqual(removed, [], "the configured queue path must be honoured")
+            self.assertTrue((out / "2026-08-01_120000").exists())
+
+    def test_custom_queue_path_in_an_output_root_layout(self) -> None:
+        """Same as the pipeline layout: repo/output/<runs> and repo/output/<queue>."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            out = repo / "output"
+            out.mkdir()
+            _make_run(out, "2026-08-01_120000", 41)
+            (out / "pending_telegram_deliveries.json").write_text(
+                json.dumps({"deliveries": [{"output_dir": "output/2026-08-01_120000"}]}),
+                encoding="utf-8",
+            )
+
+            removed = prune_output_runs(out, _config(keep_min_runs=0), NOW, root=repo)
+
+            self.assertEqual(removed, [])
 
     def test_returns_the_names_it_removed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

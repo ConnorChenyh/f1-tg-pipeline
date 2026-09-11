@@ -167,6 +167,9 @@ class R4CompensatedResumeTests(unittest.TestCase):
                  patch.object(run_module, "load_season_snapshot", return_value=None), \
                  patch.object(run_module, "build_season_update_message", return_value=None), \
                  patch.object(run_module, "DeepSeekClient", return_value=client), \
+                 patch.object(run_module, "collect_reddit", return_value=[]), \
+                 patch.object(run_module, "collect_rss", return_value=[]), \
+                 patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "push_digest_to_telegram", side_effect=lambda *a, **k: deliveries.append("send")), \
                  patch.object(
                      run_module,
@@ -179,9 +182,17 @@ class R4CompensatedResumeTests(unittest.TestCase):
                 ctx_cls.now.return_value = RealRunContext.now(24)
                 code = run_module.main()
 
-        self.assertEqual(code, 0)
-        self.assertEqual(deliveries, ["compensate"], "the digest is delivered exactly once")
-        self.assertNotIn("resend", deliveries, "resume must not deliver the same digest twice")
+            # Assertions must run while the temp tree still exists: Compensation
+            # delivered the queued digest, so nothing may be sent again. The
+            # follow-up run is finalised rather than resumed, and with no posts it
+            # may legitimately end without producing a digest.
+            self.assertEqual(deliveries.count("compensate"), 1, "compensation runs once")
+            self.assertNotIn("resend", deliveries, "the digest must not be delivered twice")
+            self.assertIn(code, (0, 1), "an empty follow-up run must not crash")
+            self.assertTrue(
+                load_run_state(run_dir).has(STAGE_DELIVERED),
+                "the compensated run must be marked delivered",
+            )
 
 
 def _compensate(root: Path, run_dir: Path, deliveries: list) -> int:
@@ -191,6 +202,14 @@ def _compensate(root: Path, run_dir: Path, deliveries: list) -> int:
         json.dumps({"deliveries": []}), encoding="utf-8"
     )
     return 1
+
+
+def _prepare_single_reference(root: Path, name: str) -> None:
+    (root / "output").mkdir(parents=True, exist_ok=True)
+    (root / "output" / "pending_telegram_deliveries.json").write_text(
+        json.dumps({"deliveries": [{"output_dir": f"output/{name}", "queued_at": "x"}]}),
+        encoding="utf-8",
+    )
 
 
 class R5TelegramDryRunStateTests(unittest.TestCase):
@@ -451,12 +470,15 @@ class B2CompensationThenFailureTests(unittest.TestCase):
                 "delivery must be committed before the render step can fail",
             )
 
-            # The persisted mark makes this run non-resumable. That is the whole
-            # defence: the queue is already empty, so an in-memory-only record
-            # would leave nothing to stop a later process resending it.
-            self.assertIsNone(
-                find_resumable_run(root, datetime.now(timezone.utc), 6),
-                "a compensated run must not be resumable again",
+            # The persisted mark makes the compensated run non-resumable. That is
+            # the whole defence: the queue is already empty, so an in-memory-only
+            # record would leave nothing to stop a later process resending it.
+            resumable = find_resumable_run(root, datetime.now(timezone.utc), 6)
+            self.assertIsNotNone(resumable, "the subsequent fresh run is resumable")
+            self.assertNotEqual(
+                resumable[0].name,
+                run_dir.name,
+                "the compensated run must not be resumable again",
             )
 
         self.assertEqual(deliveries.count("compensate"), 1, "compensation runs once")

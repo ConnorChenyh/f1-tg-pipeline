@@ -170,12 +170,17 @@ starts, then it will continue with the daily schedule.
   runs by default (`deepseek.fact_check_enabled`), followed by a separate final
   review pass (`deepseek.final_review_enabled`) for punctuation, grammar,
   semantic clarity, terminology, and last-mile fact confirmation.
-- LLM responses are contract-checked. A response with valid JSON but the wrong
-  shape (missing `items`, empty `topics`, a non-string headline/content, hashtags
-  that are not a list of strings) triggers a repair re-prompt that includes the
-  specific validation error, rather than a blind repeat of the same request.
-- Some fields are **coerced rather than repaired**: a numeric `hook`/`content` is
-  converted to text instead of re-prompting. If that happens, no repair occurs.
+- LLM responses are contract-checked, and the handling differs per field. Being
+  precise matters here because "coerced" is not "repaired":
+  - **Re-prompted (repair)** with the specific validation error: a missing or
+    empty `items` array, a `topics` payload that is not a non-empty array, a
+    topic without `title_zh`, and `hashtags`/`sources` that are present but not
+    arrays of strings.
+  - **Coerced in place, no re-prompt**: a numeric `content`/`headline`/`hook` is
+    converted to text, and `hashtags`/`sources` that are `null` become `[]`.
+    `heat_score` that cannot be read as a number becomes `0`.
+  - Nothing is guessed from a value that is absent where it is required: a
+    missing `headline`/`content` is refused.
 - The fact-check and final-review passes rewrite the draft, so their output is
   re-validated. If a review reply is structurally unusable, the draft written
   before that pass is kept and a warning is logged, so a bad second opinion does
