@@ -422,25 +422,31 @@ pipeline failure.
 
 ## Maintenance
 
-Normal race-to-race season context changes are automatic. The configured race
-dates determine break, race-build-up, active-weekend, and completed-race phases;
-live Formula1 standings refresh the points baseline. A separate Telegram message
-reports phase, completed-round, and standings changes.
+Normal race-to-race season context changes are automatic. Before standings and
+writing, `analyzer/calendar.py` fetches the current season from
+`https://www.formula1.com/en/racing/{year}`. Race names, venues, round numbers and
+weekend dates come from the official full race cards; testing and up-next cards
+are excluded. Do not restore static races, cancellation claims or break dates in
+`config.yaml`.
 
-Update `config.yaml` manually only when the authoritative calendar itself changes:
+`output/calendar_cache.json` stores the source URL, fetch timestamp, year and
+validated complete calendar. `season_context.calendar_refresh.cache_max_age_sec`
+defaults to one hour. After that, each run attempts a refresh. If it fails, the
+last successful same-season snapshot can be used for at most seven days
+(`fallback_max_age_sec`), explicitly marked stale. Older, corrupt or wrong-season
+snapshots are omitted. Missing or stale data must never be used to refute newer
+reporting or assert an official cancellation. Failed refreshes do not overwrite
+the good cache; mock/dry runs do not write it.
 
-- cancelled or rescheduled races
-- a new season calendar
-- changed team/car identities
-- newly confirmed technical terminology
+The page distinguishes the official event name from the track label. Preserve
+both the full event name and venue: a Grand Prix can retain its name while being
+held in another country. Do not infer cancellation reasons from an absent card.
+Sprint session details are not inferred from the calendar overview.
 
-After config changes:
+The existing season monitor also detects calendar changes, including future
+rounds, and reports them on the next successful Telegram-enabled run. A failed
+fetch without a usable snapshot is an unknown phase, not the end of the season.
 
-```bash
-.venv/bin/python -m unittest discover -s tests
-git add config.yaml
-git commit -m "Update season context"
-git push
-```
-
-Then deploy with the VPS command above.
+Manual configuration remains appropriate for source settings and team/car
+identities. Calendar edits, cancellations and rescheduling no longer require a
+code or config deployment.

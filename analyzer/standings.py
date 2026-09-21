@@ -214,7 +214,7 @@ STANDINGS_CACHE_FILENAME = "standings_cache.json"
 
 
 def _season_phase_label(season_cfg: dict[str, Any], now: datetime | None) -> str:
-    """Describe where the season currently stands, from the configured calendar.
+    """Describe where the season currently stands, from the refreshed calendar.
 
     This replaces a hardcoded "after R11 ... summer break" string in config.yaml
     that silently went stale as the season advanced.
@@ -222,6 +222,8 @@ def _season_phase_label(season_cfg: dict[str, Any], now: datetime | None) -> str
     if now is None:
         return "current season"
     today = now.date().isoformat()
+    if not season_cfg.get("races"):
+        return f"calendar unavailable, as of {today}"
     completed = [
         race
         for race in season_cfg.get("races", []) or []

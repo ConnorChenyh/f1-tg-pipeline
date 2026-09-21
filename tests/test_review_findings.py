@@ -98,6 +98,7 @@ class R3GuardSeasonTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={"phase": "x"}), \
@@ -161,6 +162,7 @@ class R4CompensatedResumeTests(unittest.TestCase):
             with patch.object(run_module, "ROOT", root), \
                  patch.object(run_module, "load_config", return_value=config), \
                  patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -233,6 +235,7 @@ class R5TelegramDryRunStateTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -273,6 +276,8 @@ class R9TestModeCompensationTests(unittest.TestCase):
             with patch.object(run_module, "ROOT", root), \
                  patch.object(run_module, "load_config", return_value=config), \
                  patch.object(run_module, "deliver_pending_digests", side_effect=lambda *a, **k: sent.append("compensate") or 1), \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
+                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "collect_reddit", return_value=[]), \
                  patch.object(run_module, "collect_rss", return_value=[]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
@@ -306,6 +311,7 @@ class B1MockQueuePollutionTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -362,6 +368,7 @@ class B4ResumeWithoutApiKeyTests(unittest.TestCase):
                  patch.object(run_module, "ROOT", root), \
                  patch.object(run_module, "load_config", return_value=config), \
                  patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -433,6 +440,7 @@ class B2CompensationThenFailureTests(unittest.TestCase):
                 with ExitStack() as stack:
                     stack.enter_context(patch.object(run_module, "ROOT", root))
                     stack.enter_context(patch.object(run_module, "load_config", return_value=config))
+                    stack.enter_context(patch.object(run_module, "refresh_calendar", return_value=False))
                     stack.enter_context(
                         patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False)
                     )

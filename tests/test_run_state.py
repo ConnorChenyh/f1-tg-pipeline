@@ -33,7 +33,7 @@ class RunStateIsolationTests(unittest.TestCase):
             root = Path(tmp)
             (root / "output").mkdir(parents=True)
             config = _base_config(root)
-            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
             before = _hashes(root)
 
             with patch.object(run_module, "ROOT", root), \
@@ -43,6 +43,7 @@ class RunStateIsolationTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as run_context_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -76,7 +77,7 @@ class RunStateIsolationTests(unittest.TestCase):
             root = Path(tmp)
             (root / "output").mkdir(parents=True)
             config = _base_config(root)
-            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
             before = _hashes(root)
 
             with patch.object(run_module, "ROOT", root), \
@@ -86,6 +87,7 @@ class RunStateIsolationTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as run_context_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -127,7 +129,7 @@ class GuardDegradationTests(unittest.TestCase):
             root = Path(tmp)
             (root / "output").mkdir(parents=True)
             config = _base_config(root)
-            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
             draft = {
                 "title": "围场过去24H新闻",
                 "hook": "",
@@ -144,6 +146,7 @@ class GuardDegradationTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as run_context_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
@@ -292,7 +295,7 @@ class FullPathWithStubLLMTests(unittest.TestCase):
             root = Path(tmp)
             (root / "output").mkdir(parents=True)
             config = _base_config(root)
-            now = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
 
             prompts: list[str] = []
 
@@ -309,7 +312,10 @@ class FullPathWithStubLLMTests(unittest.TestCase):
 
             from analyzer.context import RunContext as RealRunContext
 
-            real_context = RealRunContext.now(24)
+            real_context = RealRunContext(datetime(2026, 9, 20, tzinfo=timezone.utc), 24, 2026)
+            from analyzer.calendar import parse_calendar
+            html = (Path(__file__).parent / "fixtures/f1_calendar_2026.html").read_text()
+            races = parse_calendar(html, 2026)
 
             with patch.object(run_module, "ROOT", root), \
                  patch.object(run_module, "load_config", return_value=config), \
@@ -318,8 +324,8 @@ class FullPathWithStubLLMTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as run_context_cls, \
+                 patch("analyzer.calendar.fetch_calendar", return_value=races), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
-                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \
                  patch.object(run_module, "load_season_snapshot", return_value=None), \
                  patch.object(run_module, "build_season_update_message", return_value=None), \
@@ -330,6 +336,13 @@ class FullPathWithStubLLMTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0, "real module path must complete")
             self.assertTrue(prompts, "the LLM layer was never called")
+            for prompt in prompts:
+                self.assertIn("23 scheduled Grands Prix", prompt)
+                self.assertIn("BAHRAIN GRAND PRIX IN MALAYSIA", prompt)
+                self.assertNotIn("Bahrain returning", prompt)
+            snapshot = json.loads((root / "output/run1/calendar_snapshot.json").read_text())
+            self.assertEqual(snapshot["status"], "live")
+            self.assertEqual(len(snapshot["races"]), 23)
 
             draft_dir = root / "output" / "run1" / "drafts" / "digest"
             meta = json.loads((draft_dir / "meta.json").read_text(encoding="utf-8"))
@@ -381,6 +394,7 @@ class TelemetryInMetaTests(unittest.TestCase):
                  patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
                  patch.object(run_module, "collect_twitter", return_value=[]), \
                  patch.object(run_module, "RunContext") as ctx_cls, \
+                 patch.object(run_module, "refresh_calendar", return_value=False), \
                  patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
                  patch.object(run_module, "build_season_context_prompt", return_value=""), \
                  patch.object(run_module, "build_season_snapshot", return_value={}), \

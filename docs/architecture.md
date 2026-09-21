@@ -206,7 +206,7 @@ standings rather than the snapshot text in `config.yaml`.
 
 - Driver names are cleaned of the driver/nationality codes the page renders
   (`Kimi Antonelli ANT ITA` becomes `Kimi Antonelli`).
-- `team_baseline.as_of` is regenerated from the configured calendar on every run
+- `team_baseline.as_of` is regenerated from the refreshed calendar on every run
   and is never carried over from `config.yaml`. A failed fetch still advances the
   label, so the prompt cannot claim a stale round.
 - A successful fetch is written to `output/standings_cache.json` and reused for
@@ -339,7 +339,7 @@ Most behavior lives in `config.yaml`:
 - `shortlist`: candidate scoring and social caps
 - `evidence_gate`: low-evidence filtering thresholds
 - `source_tiers`: official/media/social weighting
-- `season_context`: current calendar, cancelled races, team baseline
+- `season_context`: official calendar refresh/cache settings and team baseline
 - `rss_feeds`, `reddit`, `twitter`: source configuration
 - `deepseek`: model and review settings
 - `article_fetch`: full-text article fetching
@@ -364,7 +364,13 @@ Each run writes `output/<timestamp>/`:
 Persistent memory files live under `output/` as well, because Docker mounts that
 directory as a volume.
 
-`output/season_context_state.json` records the last successful calendar phase
+`output/calendar_cache.json` stores the validated official calendar, source URL,
+season and fetch time. It is refreshed before standings and prompt generation;
+stale fallback is bounded and explicitly labelled, and unavailable data does not
+produce cancellation or season-end claims. No static race list is maintained.
+Each run also saves `calendar_snapshot.json` for inspection of the calendar used.
+
+`output/season_context_state.json` records the last successful calendar and phase
 and live standings snapshot. `run.py` compares it with the current calendar on
 each successful run. Meaningful changes are sent as a separate Telegram message;
 the state advances only after that notification succeeds, so transient Telegram

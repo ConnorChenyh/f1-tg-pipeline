@@ -5,7 +5,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -34,6 +34,7 @@ from analyzer.run_state import (
     save_run_state,
 )
 from analyzer.score import score_posts
+from analyzer.calendar import refresh_calendar
 from analyzer.season_context import build_season_context_prompt
 from analyzer.season_monitor import (
     build_season_snapshot,
@@ -477,6 +478,10 @@ def main() -> int:
                     ", ".join(prior_state.completed) or "none",
                 )
 
+    refresh_calendar(
+        config, datetime.now(timezone.utc), root=ROOT, persist=persist_state,
+        year=run_context.f1_season,
+    )
     standings_refreshed = refresh_team_baseline_from_standings(
         config,
         run_context.generated_at,
@@ -653,6 +658,13 @@ def main() -> int:
         "generated_at": run_context.generated_at.isoformat(),
         "window_hours": run_context.window_hours,
         "f1_season": run_context.f1_season,
+    })
+    season_cfg = config.get("season_context", {}) or {}
+    save_json(output_dir / "calendar_snapshot.json", {
+        "status": season_cfg.get("calendar_status", "unavailable"),
+        "source": season_cfg.get("calendar_source"),
+        "fetched_at": season_cfg.get("calendar_fetched_at"),
+        "races": season_cfg.get("races", []),
     })
 
     if not topics:

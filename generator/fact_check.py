@@ -116,7 +116,7 @@ Rules:
 - Treat model summaries as secondary context, not source truth
 - Fix causal/temporal errors (e.g. conflating separate events)
 - For a dispute or scepticism item, make the logic explicit: identify the challenged claim and connect the stated reason or budget/rule evidence to why it is being challenged.
-- When a Grand Prix is relocated, state the original round's cancellation or move and the new circuit explicitly; do not describe it merely as a race “held in” a country with a different race name.
+- Verify Grand Prix names, venues and dates against the supplied dated official calendar and article evidence. A race name need not match the host country. Do not invent cancellation/relocation history or treat stale, unverified or unavailable calendar context as a current official contradiction.
 - Fix every deterministic quality guard issue before returning JSON
 - Preserve the configured per-item length unless evidence is genuinely thin; do not compress article-backed items into short summaries
 - For article-backed or multi-evidence items, expand with only verified context when a content field is too short

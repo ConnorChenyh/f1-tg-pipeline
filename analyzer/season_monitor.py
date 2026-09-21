@@ -102,7 +102,9 @@ def build_season_snapshot(
     return {
         "recorded_at": now.isoformat(),
         "date": today.isoformat(),
-        "phase": _phase_key(season_cfg, today, completed, current, upcoming),
+        "phase": _phase_key(season_cfg, today, completed, current, upcoming) if races else "unknown",
+        "calendar_status": season_cfg.get("calendar_status", "unverified"),
+        "calendar": [_race_summary(race) | {"circuit": race.get("circuit")} for race in races],
         "completed_rounds": [race.get("round") for race in completed],
         "last_completed_race": _race_summary(completed[-1] if completed else None),
         "next_race": _race_summary(next_race),
@@ -154,6 +156,8 @@ def _format_phase(value: Any) -> str:
         return "季前阶段"
     if phase == "season_complete":
         return "赛季结束"
+    if phase == "unknown":
+        return "赛历暂不可用"
     return phase or "未知"
 
 
@@ -202,12 +206,18 @@ def build_season_update_message(
     old_rounds = set(previous.get("completed_rounds", []) or [])
     new_rounds = [item for item in current.get("completed_rounds", []) or [] if item not in old_rounds]
     phase_changed = previous.get("phase") != current.get("phase")
+    calendar_changed = (
+        current.get("calendar_status") in ("live", "cached")
+        and previous.get("calendar") != current.get("calendar")
+    )
     team_changes = _team_changes(previous, current)
     driver_changes = _driver_changes(previous, current)
-    if not new_rounds and not phase_changed and not team_changes and not driver_changes:
+    if not new_rounds and not phase_changed and not calendar_changed and not team_changes and not driver_changes:
         return None
 
     lines = ["🏁 F1 赛季背景已自动更新"]
+    if calendar_changed:
+        lines.append(f"- 官方赛历已刷新：共 {len(current.get('calendar', []))} 站，赛事名称、日期及举办地已同步")
     if phase_changed:
         lines.append(
             f"- 阶段：{_format_phase(previous.get('phase'))} → {_format_phase(current.get('phase'))}"
@@ -218,6 +228,8 @@ def build_season_update_message(
     lines.append(f"- 当前/下一站：{_format_race(current.get('next_race'))}")
     lines.extend(team_changes)
     lines.extend(driver_changes)
+    if current.get("calendar_status") in ("stale", "unavailable"):
+        lines.append("- 注意：官方赛历刷新失败，赛历信息可能过期或暂不可用")
     if not current.get("standings_refreshed"):
         lines.append("- 注意：本次官方积分刷新失败，运行时暂用配置快照")
     return "\n".join(lines)

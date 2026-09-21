@@ -106,20 +106,16 @@ season_context:
   monitor:
     enabled: true
     state_path: output/season_context_state.json
-  notes:
-    - "Madrid/Madring is scheduled as the Spanish Grand Prix venue in September, so a July social video about Madring is not evidence that SF-26 has just made its race debut there."
-    - "Bahrain and Saudi Arabia were April rounds on the original 2026 calendar, but F1/FIA confirmed they would not take place due to the ongoing Middle East situation, safety and wellbeing concerns, and regional instability linked to the Iran war / US-Israel-Iran conflict. Alternatives were considered, but no substitutions were made in April, creating the long gap from Japan to Miami."
-    - "Treat calendar-change claims such as Bahrain returning later in 2026 or double races at Baku/Singapore as speculative unless current evidence explicitly reports an official F1/FIA calendar change."
-  cancelled_or_removed:
-    - name: Bahrain Grand Prix
-      reason: "originally scheduled for April 10-12 as round 4; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
-    - name: Saudi Arabian Grand Prix
-      reason: "originally scheduled for April 17-19 as round 5; cancelled after F1/FIA safety evaluations because of the ongoing Middle East situation and Iran-war regional instability; not replaced"
-  breaks:
-    - name: summer break before the Dutch Grand Prix
-      start: "2026-07-27"
-      end: "2026-08-20"
-      guidance: "Do not write as if there is an active race week; frame news as summer-break review, technical/contract analysis, or forward-looking Dutch Grand Prix preparation unless article evidence says otherwise."
+  calendar_refresh:
+    timeout_sec: 15
+    retry:
+      attempts: 3
+      backoff_sec: 1.0
+      max_backoff_sec: 15.0
+    cache_path: output/calendar_cache.json
+    cache_max_age_sec: 3600
+    # Older snapshots are background only; beyond seven days omit calendar claims.
+    fallback_max_age_sec: 604800
   standings_refresh:
     enabled: true
     driver_url: "https://www.formula1.com/en/results/2026/drivers"
@@ -196,123 +192,6 @@ season_context:
         performance: "fourth in the Constructors' Championship after a difficult first half of 2026. The RB22 has shown strong energy deployment potential from the Red Bull Ford power unit, but Red Bull still trails Mercedes, Ferrari and McLaren overall; Verstappen is sixth and Hadjar eighth in the Drivers' Championship."
         technical: "Red Bull introduced its own upside-down rotating rear wing in Miami. Compared with Ferrari, the Red Bull version produces a larger slot gap with the upper element rising above the endplates, and technical reporting describes its flap rotation as opposite to Ferrari's system. Red Bull also brought sidepod, floor and rear-wheel wake updates."
         caveat: "Be careful with Red Bull topics: rear-wing reliability has been a story after Austria/Silverstone incidents, so separate confirmed failures from transfer or contract speculation."
-  races:
-    - round: 1
-      name: Australian Grand Prix
-      circuit: Albert Park
-      start: "2026-03-06"
-      end: "2026-03-08"
-    - round: 2
-      name: Chinese Grand Prix
-      circuit: Shanghai
-      start: "2026-03-13"
-      end: "2026-03-15"
-      sprint: true
-    - round: 3
-      name: Japanese Grand Prix
-      circuit: Suzuka
-      start: "2026-03-27"
-      end: "2026-03-29"
-    - round: 4
-      name: Miami Grand Prix
-      circuit: Miami
-      start: "2026-05-01"
-      end: "2026-05-03"
-      sprint: true
-    - round: 5
-      name: Canadian Grand Prix
-      circuit: Montreal
-      start: "2026-05-22"
-      end: "2026-05-24"
-      sprint: true
-    - round: 6
-      name: Monaco Grand Prix
-      circuit: Monaco
-      start: "2026-06-05"
-      end: "2026-06-07"
-    - round: 7
-      name: Barcelona-Catalunya Grand Prix
-      circuit: Barcelona-Catalunya
-      start: "2026-06-12"
-      end: "2026-06-14"
-    - round: 8
-      name: Austrian Grand Prix
-      circuit: Red Bull Ring
-      start: "2026-06-26"
-      end: "2026-06-28"
-    - round: 9
-      name: British Grand Prix
-      circuit: Silverstone
-      start: "2026-07-03"
-      end: "2026-07-05"
-      sprint: true
-    - round: 10
-      name: Belgian Grand Prix
-      circuit: Spa-Francorchamps
-      start: "2026-07-17"
-      end: "2026-07-19"
-    - round: 11
-      name: Hungarian Grand Prix
-      circuit: Hungaroring
-      start: "2026-07-24"
-      end: "2026-07-26"
-    - round: 12
-      name: Dutch Grand Prix
-      circuit: Zandvoort
-      start: "2026-08-21"
-      end: "2026-08-23"
-      sprint: true
-    - round: 13
-      name: Italian Grand Prix
-      circuit: Monza
-      start: "2026-09-04"
-      end: "2026-09-06"
-    - round: 14
-      name: Spanish Grand Prix
-      circuit: Madring
-      start: "2026-09-11"
-      end: "2026-09-13"
-    - round: 15
-      name: Azerbaijan Grand Prix
-      circuit: Baku
-      start: "2026-09-24"
-      end: "2026-09-26"
-    - round: 16
-      name: Singapore Grand Prix
-      circuit: Marina Bay
-      start: "2026-10-09"
-      end: "2026-10-11"
-      sprint: true
-    - round: 17
-      name: United States Grand Prix
-      circuit: Austin
-      start: "2026-10-23"
-      end: "2026-10-25"
-    - round: 18
-      name: Mexico City Grand Prix
-      circuit: Mexico City
-      start: "2026-10-30"
-      end: "2026-11-01"
-    - round: 19
-      name: São Paulo Grand Prix
-      circuit: Interlagos
-      start: "2026-11-06"
-      end: "2026-11-08"
-    - round: 20
-      name: Las Vegas Grand Prix
-      circuit: Las Vegas Strip
-      start: "2026-11-19"
-      end: "2026-11-21"
-    - round: 21
-      name: Qatar Grand Prix
-      circuit: Lusail
-      start: "2026-11-27"
-      end: "2026-11-29"
-    - round: 22
-      name: Abu Dhabi Grand Prix
-      circuit: Yas Marina
-      start: "2026-12-04"
-      end: "2026-12-06"
 
 reddit:
   subreddit: formula1

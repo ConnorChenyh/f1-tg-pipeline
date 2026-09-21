@@ -173,6 +173,7 @@ class RunHarness:
              patch.object(run_module, "collect_rss", return_value=collector_posts), \
              patch.object(run_module, "collect_twitter", return_value=[]), \
              patch.object(run_module, "RunContext") as run_context_cls, \
+             patch.object(run_module, "refresh_calendar", return_value=False), \
              patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
              patch.object(run_module, "build_season_context_prompt", return_value=""), \
              patch.object(run_module, "build_season_snapshot", return_value={}), \

@@ -27,7 +27,7 @@ def _format_race(race: dict[str, Any]) -> str:
     name = race.get("name")
     start = race.get("start")
     end = race.get("end")
-    circuit = race.get("circuit")
+    circuit = race.get("circuit") or "venue not provided"
     sprint = " Sprint" if race.get("sprint") else ""
     return f"R{round_no} {name} ({start} to {end}, {circuit}{sprint})"
 
@@ -92,7 +92,12 @@ def build_season_context_prompt(config: dict[str, Any], now: datetime) -> str:
 
     races = season_cfg.get("races", []) or []
     if not races:
-        return ""
+        return (
+            "Season calendar unavailable: no usable official snapshot. "
+            "Do not use missing calendar data to assert race counts, cancellations, "
+            "relocations, the next race or that the season has ended. "
+            "Preserve attributed article evidence without inventing an official-calendar conflict."
+        )
 
     today = now.date()
     completed = [race for race in races if _race_status(race, today) == "completed"]
@@ -100,11 +105,24 @@ def build_season_context_prompt(config: dict[str, Any], now: datetime) -> str:
     upcoming = [race for race in races if _race_status(race, today) == "scheduled"]
     next_race = current[0] if current else (upcoming[0] if upcoming else None)
 
+    status = season_cfg.get("calendar_status", "unverified")
     lines = [
         "Season calendar context:",
-        f"- Current official season calendar has {len(races)} scheduled Grands Prix in this config.",
-        f"- As of {today.isoformat()}, {len(completed)} Grands Prix have been completed.",
+        f"- Calendar snapshot has {len(races)} scheduled Grands Prix; status: {status}.",
+        f"- Source: {season_cfg.get('calendar_source', 'unverified configuration')}; "
+        f"fetched at: {season_cfg.get('calendar_fetched_at', 'unknown')}.",
+        f"- As of {today.isoformat()}, {len(completed)} Grands Prix have been completed "
+        "according to the snapshot dates (not a live results check).",
     ]
+    if status not in ("live", "cached"):
+        lines.append(
+            "- This calendar is stale or unverified background. Do not use it to contradict "
+            "newer article evidence, call a calendar change speculative, or claim a current official conflict."
+        )
+    lines.append(
+        "- Preserve official event names and distinguish the Grand Prix name from its venue. "
+        "Absence from this snapshot does not establish a cancellation reason or prove that a report is false."
+    )
     if next_race:
         status = "current race weekend" if current else "next race"
         lines.append(f"- The {status} is {_format_race(next_race)}.")

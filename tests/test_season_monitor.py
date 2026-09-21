@@ -118,6 +118,16 @@ class SeasonMonitorTests(unittest.TestCase):
 
         self.assertIsNone(build_season_update_message(previous, current))
 
+    def test_future_calendar_change_is_reported_without_phase_change(self) -> None:
+        config = _config()
+        config["season_context"]["calendar_status"] = "live"
+        now = datetime(2026, 8, 11, tzinfo=timezone.utc)
+        previous = build_season_snapshot(config, now, standings_refreshed=True)
+        config["season_context"]["races"][-1]["start"] = "2026-09-03"
+        current = build_season_snapshot(config, now, standings_refreshed=True)
+        self.assertEqual(previous["phase"], current["phase"])
+        self.assertIn("官方赛历已刷新", build_season_update_message(previous, current))
+
 
 if __name__ == "__main__":
     unittest.main()
