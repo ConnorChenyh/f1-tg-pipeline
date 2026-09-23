@@ -35,6 +35,8 @@ evidence-grounded, and compatible with the existing Docker/VPS deployment.
 
 ## Working Rules
 
+- 改动影响功能行为、配置、接口、架构或运维流程时，同步更新对应的 README 或 docs 文档；交付前检查文档与实现一致。纯内部改动且不影响文档描述时，无需为更新而更新。
+
 - Do not write personal work logs for this project.
 - Do not print or commit secrets from `.env`.
 - Preserve the existing input/output contract unless the user explicitly asks for a redesign.
