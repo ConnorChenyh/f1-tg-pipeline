@@ -75,8 +75,9 @@ docker compose logs --tail=60 f1-tg-pipeline
 The compose service runs `scheduler.py`. Generated artifacts and persistent
 memory are kept in `./output` via a bind mount.
 
-Telegram network requests retry three times with incremental five-second
-backoff. If all attempts fail, the generated output directory is added to
+Telegram network requests and retryable HTTP errors retry three times with
+incremental five-second backoff; HTTP 429 respects Telegram's `retry_after`.
+Confirmed message/image batches are checkpointed and skipped during compensation. If all attempts fail, the generated output directory is added to
 `output/pending_telegram_deliveries.json`; the next Telegram-enabled scheduled
 run tries those pending digests before producing the new one. Successful
 compensation removes the entry. Existing outputs are never added retroactively.
@@ -227,15 +228,10 @@ PY
 ```
 
 Nothing was delivered to Telegram and the season snapshot was not advanced, so the
-next Telegram-enabled run still carries the same context. Topics from a rejected
-run are recorded in topic history, so the same story is not re-picked and
-re-rejected tomorrow. Fix the underlying cause in `generator/digest_writer.py`
-or `generator/quality_guard.py` prompts/patterns, or push the saved draft
-manually:
-
-```bash
-python run.py --telegram-only output/<timestamp>
-```
+next Telegram-enabled run still carries the same context. Topics from a rejected run enter short-lived editorial history (one hour by
+default), not SQLite's published history. They can be reconsidered on the next daily
+run. Repair the underlying cause in the evidence, writer or guard and generate a new
+run. `--telegram-only` refuses a blocked draft; it is not a quality-gate bypass.
 
 ### Item text is truncated on an image
 
@@ -247,7 +243,7 @@ Image layout truncated 1 item(s) that did not fit one card: slide_02.png (191/24
 
 Check `drafts/digest/render_measurements.json` (also copied into `meta.json` as
 `image_measurements`). `rendered_chars` below `source_chars` means content was
-dropped to fit; `dropped_lines` counts the lines the draw loop skipped.
+dropped to fit and delivery is blocked; `dropped_lines` counts the lines the draw loop skipped.
 `generator/images.py` searches font sizes from large to small (34 down to 22).
 
 To reduce truncation, either shorten the item (`digest.item_max_chars`), give the
@@ -285,7 +281,9 @@ Resume: reusing the written draft from 2026-09-11_113002
 ```
 
 Runs older than `run_state.max_resume_age_hours` (default 6) are refused, and a
-run that already reached `delivered` has nothing to resume. `--resume` is ignored
+run with outcome `generated`, `rejected`, or `delivered` has nothing to resume.
+`delivery_pending` remains resumable. Original season context and draft provenance
+are retained; successful Telegram batches are not resent. `--resume` is ignored
 with `--mock`/`--dry-run`, which persist no state.
 
 ### What did this run cost?
@@ -450,3 +448,24 @@ fetch without a usable snapshot is an unknown phase, not the end of the season.
 Manual configuration remains appropriate for source settings and team/car
 identities. Calendar edits, cancellations and rescheduling no longer require a
 code or config deployment.
+
+## Reliability Artifacts
+
+- `output/.pipeline.lock`: shared process lock; do not delete it while a run is active.
+- `output/<run>/collection_status.json`: per-feed failures, fresh item counts and cache hits.
+- `output/<run>/season_snapshot.json`: calendar and standings used by this run.
+- `output/<run>/run_state.json`: explicit generation/rejection/pending/delivered outcome.
+- `drafts/digest/telegram_delivery.json`: confirmed remote batches and payload fingerprint.
+- `drafts/digest/meta.json`: quality/image verdicts, model usage, and prompt/config hashes.
+- `output/rss_cache.json`, `output/article_cache.json`: fetch caches; safe to remove while idle.
+
+Missing/corrupt images and truncated cards are rejected before any Telegram message.
+A changed draft/image set after partial delivery must be generated in a new run
+folder; do not remove its delivery checkpoint to force a resend. A corrupt pending
+queue requires recovery from a backup, rather than replacing it with an empty queue.
+
+Tune `rss_fetch.timeout_sec`, `article_fetch.cache_max_age_sec`, and
+`scheduler.timeout_sec` in `config.yaml`. The scheduler's deadline includes collection,
+model calls and publication. `article_fetch.concurrency` applies to direct HTML
+fetching; Jina stays serial. Mock and Telegram dry runs never send, queue, publish
+history or update shared caches.

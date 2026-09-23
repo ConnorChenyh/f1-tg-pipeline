@@ -7,6 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 import feedparser
 import yaml
 
@@ -146,10 +147,9 @@ def _entry_datetime(entry: feedparser.FeedParserDict) -> datetime | None:
 def _collect_subreddit_rss(subreddit: str, limit: int) -> list[PostItem]:
     url = f"https://www.reddit.com/r/{subreddit}/.rss"
     try:
-        parsed = feedparser.parse(
-            url,
-            request_headers={"User-Agent": "Mozilla/5.0 f1-tg-pipeline/1.0"},
-        )
+        response = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 f1-tg-pipeline/1.0"})
+        response.raise_for_status()
+        parsed = feedparser.parse(response.content)
     except Exception as exc:
         logger.warning("Reddit RSS fallback failed for r/%s: %s", subreddit, exc)
         return []

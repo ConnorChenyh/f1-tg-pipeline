@@ -3,15 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
 
 from analyzer.article_fetcher import enrich_evidence_with_articles
+from analyzer.file_state import pipeline_lock, write_json_atomic
 from collectors.base import PostItem
 from analyzer.context import RunContext
 from analyzer.evidence import enrich_topics_with_evidence
@@ -24,6 +26,7 @@ from analyzer.run_state import (
     STAGE_DELIVERED,
     STAGE_DIGEST,
     STAGE_IMAGES,
+    STAGE_FINISHED,
     STAGE_TOPICS,
     RunState,
     find_resumable_run,
@@ -132,8 +135,7 @@ def mock_digest(topics: list[dict]) -> dict:
 
 
 def save_json(path: Path, data: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, data)
 
 
 def load_shortlisted_posts(output_dir: Path) -> list:
@@ -159,6 +161,19 @@ def load_shortlisted_posts(output_dir: Path) -> list:
     return posts
 
 
+def _provenance(config: dict) -> dict:
+    source_root = Path(__file__).resolve().parent
+    prompt_files = ("analyzer/topics.py", "generator/prompts.py", "generator/digest_writer.py",
+                    "generator/fact_check.py", "generator/final_review.py")
+    return {
+        "config_sha256": config.get("_config_sha256"),
+        "prompt_sha256": {name: hashlib.sha256((source_root / name).read_bytes()).hexdigest()
+                          for name in prompt_files},
+        "models": {key: value for key, value in config.get("deepseek", {}).items()
+                   if key in {"model_topics", "model_writer", "temperature"}},
+    }
+
+
 def _collect_usage(client: object) -> dict:
     """Token/latency totals for this run, including failed calls and retries."""
     usage = getattr(client, "usage", None)
@@ -176,7 +191,17 @@ def _delivery_is_committed(output_dir: Path) -> bool:
     return state is not None and state.has(STAGE_DELIVERED)
 
 
-def _commit_compensated_delivery(output_dir: Path) -> None:
+def _commit_compensated_delivery(output_dir: Path, config: dict | None = None) -> None:
+    config = config if config is not None else load_config(DEFAULT_CONFIG)
+    state = load_run_state(output_dir)
+    if state is not None:
+        meta = _load_meta_json(output_dir / "drafts" / "digest")
+        topics = meta.get("topics", [])
+        generated_at = parse_generated_at(state.generated_at)
+        if topics and generated_at is not None:
+            init_story_db(ROOT, config)
+            append_topic_history(topics, ROOT, config, generated_at)
+            record_published_topics(topics, ROOT, config, generated_at)
     if mark_delivered(output_dir) is None:
         raise OSError(f"compensated run has no usable state: {output_dir}")
 
@@ -236,10 +261,14 @@ def _load_image_measurements(draft_dir: Path) -> dict:
 
 
 def build_output_dir(root: Path) -> Path:
-    ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    out = root / "output" / ts
-    out.mkdir(parents=True, exist_ok=True)
-    return out
+    now = datetime.now()
+    while True:
+        out = root / "output" / now.strftime("%Y-%m-%d_%H%M%S")
+        try:
+            out.mkdir(parents=True, exist_ok=False)
+            return out
+        except FileExistsError:
+            now += timedelta(seconds=1)
 
 
 def backfill_recent_topics(
@@ -252,7 +281,7 @@ def backfill_recent_topics(
     if len(fresh_topics) >= min_items:
         return fresh_topics, skipped_topics
 
-    reusable_reasons = ("shared_url:", "text_similarity:")
+    reusable_reasons = ("shared_url:", "text_similarity:", "story_db:")
     reusable_ids = {
         item.get("id")
         for item in skipped_topics
@@ -268,6 +297,9 @@ def backfill_recent_topics(
     for topic in original_topics:
         topic_id = topic.get("id")
         if topic_id in selected_ids or topic_id not in reusable_ids:
+            continue
+        if not any(post.get("fetch_status") == "ok" and post.get("article_content")
+                   for post in topic.get("evidence_posts", [])):
             continue
         item = dict(topic)
         notes = list(item.get("evidence_quality_notes", []) or [])
@@ -384,18 +416,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
+def _main() -> int:
     args = parse_args()
     setup_logging(args.verbose)
     load_dotenv(ROOT / ".env")
 
     config = load_config(args.config)
+    config["_collection_status"] = []
+    config["_config_sha256"] = hashlib.sha256(json.dumps(
+        {key: value for key, value in config.items() if not key.startswith("_")},
+        sort_keys=True, ensure_ascii=False,
+    ).encode()).hexdigest()
     if args.telegram_only is not None:
         output_dir = args.telegram_only
         draft_dir = output_dir / "drafts" / "digest"
         try:
-            result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
-            logging.info("Telegram push result: %s", result)
+            result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run or args.mock or args.dry_run)
+            if not (args.telegram_dry_run or args.mock or args.dry_run) and load_run_state(output_dir) is not None:
+                _commit_compensated_delivery(output_dir, config)
+            logging.info("Telegram push complete: %s images", result.get("image_count", 0))
             return 0
         except TelegramConfigError as exc:
             logging.error("Telegram config error: %s", exc)
@@ -414,7 +453,7 @@ def main() -> int:
             delivered = deliver_pending_digests(
                 ROOT,
                 config,
-                on_delivered=_commit_compensated_delivery,
+                on_delivered=lambda path: _commit_compensated_delivery(path, config),
                 already_delivered=_delivery_is_committed,
             )
             if delivered:
@@ -451,6 +490,7 @@ def main() -> int:
     # cache, or advance the season snapshot; otherwise a throwaway run
     # suppresses real topics for the whole cooldown window.
     persist_state = not test_mode
+    config["_runtime"] = {"root": str(ROOT), "persist": persist_state}
 
     run_context = RunContext.now(window_hours)
     prior_state = None
@@ -478,16 +518,22 @@ def main() -> int:
                     ", ".join(prior_state.completed) or "none",
                 )
 
-    refresh_calendar(
-        config, datetime.now(timezone.utc), root=ROOT, persist=persist_state,
-        year=run_context.f1_season,
-    )
-    standings_refreshed = refresh_team_baseline_from_standings(
-        config,
-        run_context.generated_at,
-        root=ROOT,
-        persist=persist_state,
-    )
+    season_file = output_dir / "season_snapshot.json" if output_dir is not None else None
+    if season_file is not None and season_file.exists():
+        saved_season = json.loads(season_file.read_text(encoding="utf-8"))
+        config["season_context"] = saved_season["config"]
+        standings_refreshed = bool(saved_season["standings_refreshed"])
+    else:
+        refresh_calendar(
+            config, datetime.now(timezone.utc), root=ROOT, persist=persist_state,
+            year=run_context.f1_season,
+        )
+        standings_refreshed = refresh_team_baseline_from_standings(
+            config,
+            run_context.generated_at,
+            root=ROOT,
+            persist=persist_state,
+        )
     run_context = run_context.with_season_context(build_season_context_prompt(config, run_context.generated_at))
     season_snapshot = build_season_snapshot(
         config,
@@ -527,10 +573,16 @@ def main() -> int:
             window_hours=window_hours,
         )
         output_dir = build_output_dir(ROOT)
+        state.run_id = output_dir.name
+        run_id = state.run_id
         if persist_state:
             mark_active_run(ROOT, output_dir)
         logging.info("Output directory: %s", output_dir)
     save_run_state(output_dir, state)
+    season_file = output_dir / "season_snapshot.json"
+    if not season_file.exists():
+        save_json(season_file, {"config": config.get("season_context", {}),
+                               "standings_refreshed": standings_refreshed})
 
     if state.has(STAGE_COLLECT) and (output_dir / "shortlisted_posts.json").exists():
         logging.info("Resume: reusing the collected shortlist from %s", output_dir.name)
@@ -546,10 +598,18 @@ def main() -> int:
             ("twitter", lambda: collect_twitter(config)),
         ):
             try:
-                posts.extend(collector())
+                collected = collector()
+                posts.extend(collected)
+                config.setdefault("_collection_status", []).append({
+                    "collector": collector_name, "status": "completed", "item_count": len(collected),
+                })
             except Exception as exc:
+                config.setdefault("_collection_status", []).append({
+                    "collector": collector_name, "status": "failed", "error": type(exc).__name__,
+                })
                 logging.warning("%s collector failed: %s", collector_name, exc)
 
+        save_json(output_dir / "collection_status.json", config.get("_collection_status", []))
         normalized = normalize_posts(posts, window_hours)
         scored = score_posts(normalized)
         save_json(output_dir / "raw_posts.json", [p.to_dict() for p in scored])
@@ -611,22 +671,16 @@ def main() -> int:
         if skipped_by_evidence:
             skipped_recent_topics.extend(skipped_by_evidence)
         history_candidate_topics = topics
-        topics, skipped_by_story_db = filter_topics_seen_in_story_db(
-            topics,
-            ROOT,
-            config,
-            run_context.generated_at,
-        )
-        if skipped_by_story_db:
-            skipped_recent_topics.extend(skipped_by_story_db)
+        # Check theme cooldowns before SQLite duplicates so backfill cannot
+        # accidentally revive a cooled-down story.
         topics, skipped_by_topic_history = filter_recent_topics(
-            topics,
-            ROOT,
-            config,
-            run_context.generated_at,
+            topics, ROOT, config, run_context.generated_at,
         )
-        if skipped_by_topic_history:
-            skipped_recent_topics.extend(skipped_by_topic_history)
+        skipped_recent_topics.extend(skipped_by_topic_history)
+        topics, skipped_by_story_db = filter_topics_seen_in_story_db(
+            topics, ROOT, config, run_context.generated_at,
+        )
+        skipped_recent_topics.extend(skipped_by_story_db)
         topics, skipped_recent_topics = backfill_recent_topics(
             topics,
             skipped_recent_topics,
@@ -711,6 +765,7 @@ def main() -> int:
         def _base_meta() -> dict:
             return {
                 "digest_title": digest_title,
+                "provenance": previous_meta.get("provenance") or _provenance(config),
                 "topics": digest_topics,
                 "skipped_recent_topics": skipped_recent_topics,
                 "images": [],
@@ -743,6 +798,10 @@ def main() -> int:
         meta = _base_meta()
         meta["images"] = image_paths
         meta["image_measurements"] = _load_image_measurements(draft_dir)
+        if meta["image_measurements"].get("truncated_count", 0):
+            guard_blocked = True
+            guard_blocking_codes = sorted(set(guard_blocking_codes + ["image_truncated"]))
+            meta.update(guard_blocked=True, guard_blocking_codes=guard_blocking_codes)
         save_json(draft_dir / "meta.json", meta)
         logging.info("Generated digest at %s", draft_dir)
 
@@ -759,14 +818,16 @@ def main() -> int:
             pushed_ok = True
         elif args.push_telegram:
             try:
-                result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run)
-                pushed_ok = True
+                result = push_digest_to_telegram(draft_dir, config, dry_run=args.telegram_dry_run or args.mock or args.dry_run)
+                pushed_ok = not test_mode
             except Exception:
                 if test_mode:
                     # A test-mode delivery failure must not queue a test digest
                     # for real compensation on a later production run.
                     logging.warning("Test mode: not queuing the failed delivery")
                 else:
+                    state.outcome = "delivery_pending"
+                    save_run_state(output_dir, state)
                     enqueue_pending_delivery(ROOT, config, output_dir)
                 raise
             logging.info("Telegram push result: %s", result)
@@ -774,13 +835,11 @@ def main() -> int:
         # The run is finished once its outcome is known: delivered, or kept for
         # human review because the guard rejected it. A failed push must stay
         # resumable.
-        if state is not None and (guard_blocked or pushed_ok or not args.push_telegram):
-            state.mark(STAGE_DELIVERED)
-            save_run_state(output_dir, state)
-
+        state.outcome = "rejected" if guard_blocked else ("delivered" if pushed_ok else "generated")
         if persist_state:
-            append_topic_history(digest_topics, ROOT, config, run_context.generated_at)
-            record_published_topics(digest_topics, ROOT, config, run_context.generated_at)
+            append_topic_history(digest_topics, ROOT, config, run_context.generated_at, outcome=state.outcome)
+            if pushed_ok:
+                record_published_topics(digest_topics, ROOT, config, run_context.generated_at)
             # The season snapshot describes the same context the digest was built
             # with, so it only advances once that digest reached Telegram. A
             # guard-rejected digest never reaches the reader, so it must not
@@ -804,6 +863,9 @@ def main() -> int:
                 "Test mode (%s): published-topic memory and season snapshot left untouched",
                 "mock" if args.mock else ("dry-run" if args.dry_run else "telegram-dry-run"),
             )
+        state.mark(STAGE_DELIVERED if pushed_ok and persist_state else STAGE_FINISHED)
+        if not save_run_state(output_dir, state):
+            raise OSError("Could not persist final run outcome")
     except Exception as exc:
         if not usage_persisted:
             _persist_model_usage(draft_dir, client)
@@ -813,6 +875,15 @@ def main() -> int:
     preview_path = generate_preview(output_dir)
     logging.info("Preview: %s", preview_path)
     return 0
+
+
+def main() -> int:
+    try:
+        with pipeline_lock(ROOT):
+            return _main()
+    except BlockingIOError:
+        logging.error("Another pipeline run is active; skipping this invocation")
+        return 1
 
 
 if __name__ == "__main__":

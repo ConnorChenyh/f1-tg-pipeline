@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -60,7 +61,7 @@ def next_run_at(now: datetime, daily_at: dt_time) -> datetime:
     return candidate
 
 
-def run_pipeline(config_path: Path, hours: int, push_telegram: bool) -> int:
+def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec: int = 1800) -> int:
     cmd = [
         sys.executable,
         str(ROOT / "run.py"),
@@ -73,9 +74,22 @@ def run_pipeline(config_path: Path, hours: int, push_telegram: bool) -> int:
         cmd.append("--push-telegram")
 
     logging.info("Starting scheduled pipeline: %s", " ".join(cmd))
-    completed = subprocess.run(cmd, cwd=ROOT, check=False, env=os.environ.copy())
-    logging.info("Scheduled pipeline exited with code %s", completed.returncode)
-    return completed.returncode
+    with subprocess.Popen(cmd, cwd=ROOT, env=os.environ.copy(), start_new_session=True) as process:
+        try:
+            code = process.wait(timeout=max(1, timeout_sec))
+        except subprocess.TimeoutExpired:
+            logging.error("Pipeline exceeded its %ss deadline; terminating the process group", timeout_sec)
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            except ProcessLookupError:
+                process.wait()
+            return 124
+    logging.info("Scheduled pipeline exited with code %s", code)
+    return code
 
 
 def sleep_until(target: datetime) -> None:
@@ -114,14 +128,15 @@ def main() -> int:
         run_on_start,
     )
 
+    timeout_sec = int(scheduler_cfg.get("timeout_sec", 1800))
     if run_on_start:
-        run_pipeline(config_path, hours, push_telegram)
+        run_pipeline(config_path, hours, push_telegram, timeout_sec)
 
     while True:
         target = next_run_at(datetime.now(tz), daily_at)
         logging.info("Next scheduled run: %s", target.isoformat())
         sleep_until(target)
-        run_pipeline(config_path, hours, push_telegram)
+        run_pipeline(config_path, hours, push_telegram, timeout_sec)
 
 
 if __name__ == "__main__":

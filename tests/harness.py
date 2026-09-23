@@ -22,6 +22,9 @@ STATE_FILES = (
     "season_context_state.json",
     "pending_telegram_deliveries.json",
     "standings_cache.json",
+    "calendar_cache.json",
+    "rss_cache.json",
+    "article_cache.json",
     "active_run.json",
 )
 

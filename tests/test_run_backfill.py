@@ -30,6 +30,8 @@ class RunBackfillTests(unittest.TestCase):
             {"id": "topic_03", "title_zh": "低证据话题", "reason": "social_only_without_article_content"},
         ]
 
+        for topic in original:
+            topic["evidence_posts"] = [{"fetch_status": "ok", "article_content": "Verified article body"}]
         topics, remaining = backfill_recent_topics(fresh, skipped, original, 3)
 
         self.assertEqual([topic["id"] for topic in topics], ["topic_04", "topic_01", "topic_02"])

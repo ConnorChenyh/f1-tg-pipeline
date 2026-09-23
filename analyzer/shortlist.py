@@ -116,16 +116,16 @@ def _has_external_article(post: PostItem) -> bool:
 
 
 def _cross_source_count(post: PostItem, posts: list[PostItem]) -> int:
-    count = 0
+    own = _host(post.url) or post.feed_name or post.source
+    sources = set()
     for other in posts:
-        if other is post or other.source == post.source:
+        source = _host(other.url) or other.feed_name or other.source
+        if other is post or source == own:
             continue
-        if normalize_source_url(other.url) and normalize_source_url(other.url) == normalize_source_url(post.url):
-            count += 1
-            continue
-        if _similarity(post, other) >= 0.72:
-            count += 1
-    return count
+        if (normalize_source_url(other.url) == normalize_source_url(post.url)
+                or _similarity(post, other) >= 0.72):
+            sources.add(source)
+    return len(sources)
 
 
 def _shortlist_score(post: PostItem, posts: list[PostItem], config: dict[str, Any], now: datetime) -> tuple[float, list[str]]:
@@ -198,15 +198,18 @@ def shortlist_posts(posts: list[PostItem], config: dict[str, Any], now: datetime
             continue
         if normalized_url and not allow_same_url and normalized_url in selected_urls:
             continue
-        if any(_similarity(candidate, existing) >= similarity_threshold for existing in selected):
+        duplicate = next((existing for existing in selected
+                          if _similarity(candidate, existing) >= similarity_threshold), None)
+        if duplicate is not None:
+            duplicate.extra.setdefault("related_posts", []).append(candidate.to_dict())
+            continue
+        if len(selected) >= limit:
             continue
         selected.append(candidate)
         if is_social_only:
             social_only_count += 1
         if normalized_url:
             selected_urls.add(normalized_url)
-        if len(selected) >= limit:
-            break
 
     logger.info("Shortlist selected %d/%d posts", len(selected), len(posts))
     return selected

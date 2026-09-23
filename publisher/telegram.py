@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import time
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 import requests
+from PIL import Image
+from analyzer.file_state import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -74,29 +77,6 @@ def _format_digest_text(
     return _trim_text(text, min(max_chars, TELEGRAM_MESSAGE_LIMIT))
 
 
-def _image_paths(draft_dir: Path) -> list[Path]:
-    images_dir = draft_dir / "images"
-    if not images_dir.exists():
-        return []
-
-    preferred = ["cover.png"]
-    preferred.extend(f"slide_{index:02d}.png" for index in range(1, 10))
-
-    ordered: list[Path] = []
-    seen: set[Path] = set()
-    for name in preferred:
-        path = images_dir / name
-        if path.exists():
-            ordered.append(path)
-            seen.add(path)
-
-    for path in sorted(images_dir.glob("*.png")):
-        if path not in seen and path.name != "slide_last.png":
-            ordered.append(path)
-
-    return ordered
-
-
 def _telegram_api_url(token: str, method: str) -> str:
     return f"https://api.telegram.org/bot{token}/{method}"
 
@@ -110,7 +90,20 @@ def _post_with_retry(
 ) -> requests.Response:
     for attempt in range(1, attempts + 1):
         try:
-            return request()
+            response = request()
+            status = getattr(response, "status_code", 200)
+            if isinstance(status, int) and (status == 429 or status >= 500) and attempt < attempts:
+                delay = backoff_sec * attempt
+                try:
+                    retry_after = response.json().get("parameters", {}).get("retry_after")
+                    if retry_after is not None:
+                        delay = max(delay, float(retry_after))
+                except (ValueError, TypeError, AttributeError):
+                    pass
+                logger.warning("Telegram %s HTTP %s; retrying in %.1fs", method, status, delay)
+                time.sleep(delay)
+                continue
+            return response
         except requests.RequestException as exc:
             if attempt == attempts:
                 raise RuntimeError(
@@ -181,19 +174,20 @@ def _send_media_group(
             handles.append(handle)
             files[field] = (image_path.name, handle, "image/png")
 
+        method = "sendPhoto" if len(images) == 1 else "sendMediaGroup"
         def send_request() -> requests.Response:
             for handle in handles:
                 handle.seek(0)
             return requests.post(
-                _telegram_api_url(token, "sendMediaGroup"),
-                data={"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
-                files=files,
+                _telegram_api_url(token, method),
+                data={"chat_id": chat_id} if len(images) == 1 else {"chat_id": chat_id, "media": json.dumps(media, ensure_ascii=False)},
+                files={"photo": files["photo0"]} if len(images) == 1 else files,
                 timeout=timeout_sec,
             )
 
         response = _post_with_retry(
             send_request,
-            method="sendMediaGroup",
+            method=method,
             attempts=retry_attempts,
             backoff_sec=retry_backoff_sec,
         )
@@ -259,7 +253,21 @@ def push_digest_to_telegram(
     draft = _load_json(draft_path)
     title = str(draft.get("telegram_title") or _digest_title_for_telegram(draft_dir, draft.get("title")))
     text = _format_digest_text(draft, max_chars=max_text_chars, title=title)
-    images = _image_paths(draft_dir)
+    items = draft.get("items")
+    if not isinstance(items, list) or not items:
+        raise ValueError("Digest must have at least one item before delivery")
+    images = [draft_dir / "images" / "cover.png"] + [
+        draft_dir / "images" / f"slide_{index:02d}.png" for index in range(1, len(items) + 1)
+    ]
+    for path in images:
+        with Image.open(path) as image:
+            image.verify()
+    measurements = draft_dir / "render_measurements.json"
+    if measurements.exists() and _load_json(measurements).get("truncated_count", 0):
+        raise ValueError("Digest contains truncated images; regenerate before delivery")
+    meta_path = draft_dir / "meta.json"
+    if meta_path.exists() and _load_json(meta_path).get("guard_blocked"):
+        raise ValueError("Digest is blocked by quality checks; repair and revalidate before delivery")
 
     if dry_run:
         return {
@@ -270,26 +278,42 @@ def push_digest_to_telegram(
             "images": [str(path) for path in images],
         }
 
-    message_result = _post_telegram_json(
-        token,
-        "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True,
-        },
-        timeout_sec,
-        retry_attempts,
-        retry_backoff_sec,
-    )
-    media_results = _send_media_groups(
-        token,
-        chat_id,
-        images,
-        timeout_sec,
-        retry_attempts,
-        retry_backoff_sec,
-    )
+    fingerprint = hashlib.sha256()
+    fingerprint.update(json.dumps([chat_id, token.split(":", 1)[0], text], ensure_ascii=False).encode())
+    for path in images:
+        fingerprint.update(path.name.encode())
+        fingerprint.update(path.read_bytes())
+    key = fingerprint.hexdigest()
+    checkpoint_path = draft_dir / "telegram_delivery.json"
+    checkpoint = {"fingerprint": key, "media": []}
+    if checkpoint_path.exists():
+        checkpoint = _load_json(checkpoint_path)
+        if checkpoint.get("fingerprint") != key:
+            raise ValueError("Delivered payload changed; use a new run directory for a revised digest")
+        if (not isinstance(checkpoint.get("media"), list)
+                or any(not isinstance(item, dict) or item.get("ok") is not True
+                       for item in checkpoint["media"])
+                or ("message" in checkpoint and (not isinstance(checkpoint["message"], dict)
+                    or checkpoint["message"].get("ok") is not True))):
+            raise ValueError("Invalid Telegram delivery checkpoint")
+
+    if "message" not in checkpoint:
+        checkpoint["message"] = _post_telegram_json(
+            token, "sendMessage",
+            {"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+            timeout_sec, retry_attempts, retry_backoff_sec,
+        )
+        write_json_atomic(checkpoint_path, checkpoint)
+    message_result = checkpoint["message"]
+    media_results = checkpoint["media"]
+    batches = [images[start:start + TELEGRAM_MEDIA_GROUP_LIMIT]
+               for start in range(0, len(images), TELEGRAM_MEDIA_GROUP_LIMIT)]
+    if len(media_results) > len(batches):
+        raise ValueError("Invalid Telegram delivery batch count")
+    for batch in batches[len(media_results):]:
+        result = _send_media_group(token, chat_id, batch, timeout_sec, retry_attempts, retry_backoff_sec)
+        media_results.append(result)
+        write_json_atomic(checkpoint_path, checkpoint)
 
     logger.info(
         "Telegram push complete: %d images in %d media group(s)",

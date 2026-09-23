@@ -72,7 +72,8 @@ class ResumeIntegrationTests(unittest.TestCase, RunHarness):
 
             resumed_state = load_run_state(run_dir)
             self.assertTrue(resumed_state.has(STAGE_IMAGES))
-            self.assertTrue(resumed_state.has(STAGE_DELIVERED))
+            self.assertEqual(resumed_state.outcome, "generated")
+            self.assertFalse(resumed_state.has(STAGE_DELIVERED))
 
     def test_resume_with_nothing_to_resume_starts_fresh(self) -> None:
         scripts = self._scripts()

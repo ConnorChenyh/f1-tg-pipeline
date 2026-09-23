@@ -221,3 +221,14 @@ starts, then it will continue with the daily schedule.
 - Telegram push is optional. Create a bot with BotFather, send `/start` to the
   bot, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then use
   `--push-telegram` or `--telegram-only`.
+
+### Reliability checks
+
+Runs now preserve related news sources, use exact canonical evidence URLs, and
+separate generated/rejected drafts from confirmed publication. Telegram validates
+image completeness and resumes from confirmed batches. RSS and article caches reduce
+repeat fetching; source health and prompt/config hashes are saved with each run.
+A shared process lock prevents overlapping scheduled/manual runs, and scheduled runs
+have a 30-minute deadline. See [operations](docs/operations.md#reliability-artifacts)
+for state files and recovery, and [architecture](docs/architecture.md#collection-and-delivery-reliability)
+for details. Offline regression checks also run in GitHub Actions.

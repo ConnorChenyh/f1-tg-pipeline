@@ -33,7 +33,7 @@ def normalize_source_url(url: str) -> str:
             parsed.scheme.lower(),
             parsed.netloc.lower(),
             path,
-            urlencode(query, doseq=True),
+            urlencode(sorted(query, key=lambda item: item[0]), doseq=True),
             "",
         )
     )

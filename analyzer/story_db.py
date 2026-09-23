@@ -160,9 +160,11 @@ def record_published_topics(
             INSERT INTO published_topics (
                 published_at, topic_id, title_zh, summary, fingerprint,
                 evidence_urls_json, payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (
+                SELECT 1 FROM published_topics WHERE fingerprint = ? AND published_at = ?
+            )
             """,
-            rows,
+            [row + (row[4], row[0]) for row in rows],
         )
         conn.commit()
     logger.info("Story DB recorded %d published topics", len(rows))
@@ -205,9 +207,19 @@ def filter_topics_seen_in_story_db(
     config: dict[str, Any],
     now: datetime,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    fingerprints = recent_published_fingerprints(root, config, now)
-    if not fingerprints:
+    if not story_db_enabled(config):
         return topics, []
+    path = story_db_path(root, config)
+    if not path.exists():
+        return topics, []
+    cutoff = (now - timedelta(days=int(config.get("topic_history", {}).get("dedupe_days", 7)))).isoformat()
+    with closing(_connect(path)) as conn:
+        rows = conn.execute(
+            "SELECT fingerprint, MAX(published_at) FROM published_topics WHERE published_at >= ? GROUP BY fingerprint",
+            (cutoff,),
+        ).fetchall()
+    published = dict(rows)
+    fingerprints = set(published)
 
     fresh: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -219,6 +231,8 @@ def filter_topics_seen_in_story_db(
                     "id": topic.get("id"),
                     "title_zh": topic.get("title_zh"),
                     "reason": f"story_db:{fingerprint[:80]}",
+                    "duplicate_published_at": published[fingerprint],
+                    "duplicate_age_hours": max(0, (now - datetime.fromisoformat(published[fingerprint])).total_seconds() / 3600),
                 }
             )
         else:

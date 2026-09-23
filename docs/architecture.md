@@ -70,7 +70,16 @@ similarity. `analyzer/shortlist.py` then adds deterministic governance:
 - cross-source bonus for similar stories across sources
 - time decay for older items inside the window
 - score cap and count cap for social-only posts
-- URL and text-similarity deduplication inside the candidate batch
+- exact URL deduplication during normalization, then story clustering in the shortlist
+- related source posts retained under `extra.related_posts`, including after the
+  shortlist reaches its size limit; evidence enrichment expands the selected cluster
+- corroboration counted by distinct publisher domains rather than the generic RSS channel
+
+Evidence URL matching uses the same canonicalizer as history and quality checks.
+Tracking parameters are removed, business parameters are retained, and URL substring
+matching is not used. Theme cooldowns are checked before SQLite duplicate filtering;
+short-term duplicate backfill requires fetched article content and never overrides a
+theme cooldown.
 
 The resulting candidates are saved to `output/<timestamp>/shortlisted_posts.json`
 for debugging.
@@ -190,7 +199,9 @@ set. `dropped_lines` counts the lines the draw loop skipped. `generate_images_fo
 `drafts/digest/render_measurements.json` with per-slide `source_chars`,
 `rendered_chars`, `truncated`, and `font_size`, and logs a warning listing any
 truncated slides. `run.py` copies that report into `meta.json` under
-`image_measurements`, so silent text loss is detectable.
+`image_measurements`, so text loss is detectable. Any truncated item blocks delivery and marks the run
+`rejected`; the publisher also checks for a valid cover and exactly the required
+item images before sending anything.
 
 The Telegram publisher sends the date-stamped title line, then the images,
 splitting them into media groups of 10. The digest body is deliberately not sent
@@ -220,8 +231,8 @@ standings rather than the snapshot text in `config.yaml`.
 again. State lives in two files:
 
 - `output/<timestamp>/run_state.json` - run id, original run time and window, and
-  the stages already completed (`collect`, `topics`, `digest`, `images`,
-  `delivered`).
+  the stages already completed (`collect`, `topics`, `digest`, `images`, and `finished` or `delivered`).
+  `outcome` distinguishes `generated`, `rejected`, `delivery_pending`, and `delivered`.
 - `output/active_run.json` - a pointer to the newest run, so `--resume` does not
   have to guess.
 
@@ -229,8 +240,12 @@ A resumed run reuses the saved shortlist, topics and draft, so the paid DeepSeek
 calls are not repeated. It also freezes the original run time, keeping the
 time-dependent filters (history window, cooldowns, time decay) consistent with
 the first attempt. Runs older than `run_state.max_resume_age_hours` are refused
-so a stale window is never published, and a run that already reached `delivered`
-is not resumable. `--resume` is ignored together with `--mock`/`--dry-run`, since
+so a stale window is never published, and a run that already reached `finished` or `delivered`
+is not resumable. Generated and rejected drafts do not enter SQLite's published
+history. They only enter JSON editorial history for a short cooldown (one hour by
+default). Compensation and manual delivery finalize published history idempotently.
+Old run-state files without an outcome remain readable. A saved `season_snapshot.json`
+keeps the original calendar and standings on resume, and draft provenance is retained. `--resume` is ignored together with `--mock`/`--dry-run`, since
 those modes persist nothing.
 
 ## Dependencies
@@ -379,3 +394,38 @@ failures retry on the next run.
 `output/pending_telegram_deliveries.json` separately tracks digest deliveries
 that still fail after the configured Telegram network retries. This avoids
 losing an already-generated digest during a transient outbound-network outage.
+
+## Collection And Delivery Reliability
+
+Every `run.py` invocation holds `output/.pipeline.lock` for its lifetime, including
+manual publication and compensation. The lock is shared through the existing Docker
+output mount. A second process exits with an error instead of racing state writes.
+The daily scheduler limits the entire child process group to `scheduler.timeout_sec`
+(default 1800 seconds), then terminates it and continues scheduling. RSS requests
+(including Reddit RSS fallback) have explicit timeouts.
+
+RSS caches successful response bodies and validators in `output/rss_cache.json`.
+A 304 response reuses the cached body but still applies the current news window.
+`collection_status.json` records per-feed status, item count, latency, HTTP status,
+and cache use, plus collector-level totals. Failed sources are distinct from empty
+successful feeds. Invalid feed responses never replace good cached bodies.
+
+Article enrichment caches successful bodies for six hours by canonical URL and
+fetch settings in `output/article_cache.json`, with fetch time and a content hash.
+Expired entries are removed when the cache is refreshed. Direct HTML fetching uses
+bounded concurrency (at most four workers) and serial requests per publisher host;
+Jina mode stays serial because it uses one shared upstream. Test modes may read
+caches but never update them.
+
+The Telegram publisher checks files and guard results before the first message.
+`drafts/digest/telegram_delivery.json` records the payload fingerprint and successful
+message/album responses after each batch. Retries skip confirmed batches; a changed
+payload requires a new run directory. A one-image batch uses `sendPhoto`. HTTP 429
+honors `retry_after`; 5xx and transport failures use bounded retries. The remote
+success/local-checkpoint failure window still has at-least-once semantics.
+A corrupt queue/checkpoint is surfaced rather than silently discarded.
+
+`meta.json.provenance` records configuration and prompt-source hashes plus model
+names and temperature. `.github/workflows/test.yml` runs offline tests and compilation
+with the pinned dependencies and CJK fonts. The cooldown fixture contains synthetic
+editorial boundary cases, not a claim that offline tests prove LLM factual accuracy.

@@ -14,6 +14,7 @@ topic_history:
   dedupe_days: 7
   similarity_threshold: 0.72
   backfill_max_age_hours: 6
+  unpublished_cooldown_hours: 1
   path: output/topic_history.json
 
 topic_cooldowns:
@@ -24,7 +25,7 @@ topic_cooldowns:
       cooldown_days: 7
       keyword_groups:
         - ["verstappen", "维斯塔潘", "max"]
-        - ["future", "exit clause", "mercedes", "red bull", "transfer", "move", "stay loyal", "未来", "去向", "转会", "留队", "红牛", "梅赛德斯", "解约条款"]
+        - ["future", "exit clause", "transfer", "stay loyal", "contract", "未来", "去向", "转会", "留队", "合同", "解约条款"]
     - key: goodwood_festival
       cooldown_days: 7
       keyword_groups:
@@ -248,6 +249,8 @@ article_fetch:
   timeout_sec: 15
   max_chars: 3500
   delay_sec: 1.0
+  cache_max_age_sec: 21600
+  concurrency: 2
   # Bounded retries with jittered backoff for full-text fetching.
   retry:
     attempts: 3
@@ -261,7 +264,12 @@ telegram:
   pending_deliveries_path: output/pending_telegram_deliveries.json
   max_text_chars: 1000
 
+rss_fetch:
+  timeout_sec: 15
+  retry: {attempts: 3, backoff_sec: 1.0, max_backoff_sec: 10.0}
+
 scheduler:
+  timeout_sec: 1800
   timezone: Asia/Hong_Kong
   daily_at: "12:00"
   hours: 24

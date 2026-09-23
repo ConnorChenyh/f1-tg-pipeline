@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from difflib import SequenceMatcher
 from typing import Iterable
 
 from collectors.base import PostItem
+from generator.evidence_pack import normalize_source_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +18,6 @@ def clean_text(text: str) -> str:
     text = HTML_TAG_RE.sub(" ", text)
     text = WHITESPACE_RE.sub(" ", text)
     return text.strip()
-
-
-def _title_similarity(a: str | None, b: str | None) -> float:
-    if not a or not b:
-        return 0.0
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
 def filter_by_window(posts: Iterable[PostItem], window_hours: int) -> list[PostItem]:
@@ -41,7 +35,7 @@ def filter_by_window(posts: Iterable[PostItem], window_hours: int) -> list[PostI
 def dedupe_posts(posts: list[PostItem]) -> list[PostItem]:
     by_url: dict[str, PostItem] = {}
     for post in posts:
-        key = post.url.strip().lower()
+        key = normalize_source_url(post.url)
         if not key:
             continue
         existing = by_url.get(key)
@@ -53,20 +47,10 @@ def dedupe_posts(posts: list[PostItem]) -> list[PostItem]:
         ):
             by_url[key] = post
 
-    unique = list(by_url.values())
-
-    # Cross-source title dedupe for near-duplicates.
-    kept: list[PostItem] = []
-    for post in sorted(unique, key=lambda p: p.created_at, reverse=True):
-        duplicate = False
-        for other in kept:
-            if _title_similarity(post.title, other.title) >= 0.85:
-                duplicate = True
-                break
-        if not duplicate:
-            kept.append(post)
-
-    logger.info("Normalize: %d -> %d after dedupe", len(posts), len(kept))
+    # Different URLs remain available as independent evidence. Story-level
+    # deduplication happens in the shortlist, where related posts are retained.
+    kept = sorted(by_url.values(), key=lambda p: p.created_at, reverse=True)
+    logger.info("Normalize: %d -> %d after URL dedupe", len(posts), len(kept))
     return kept
 
 

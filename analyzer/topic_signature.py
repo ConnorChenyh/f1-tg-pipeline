@@ -35,7 +35,16 @@ def _topic_text(topic: dict[str, Any]) -> str:
 
 
 def _matches_keyword_group(text: str, keywords: list[Any]) -> bool:
-    return any(str(keyword).lower() in text for keyword in keywords)
+    for keyword in keywords:
+        value = str(keyword).lower().strip()
+        if not value:
+            continue
+        if value.isascii():
+            if re.search(r"(?<![a-z0-9])" + re.escape(value) + r"(?![a-z0-9])", text):
+                return True
+        elif value in text:
+            return True
+    return False
 
 
 def topic_signature(topic: dict[str, Any], config: dict[str, Any]) -> str:

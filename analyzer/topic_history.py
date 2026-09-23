@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from generator.evidence_pack import normalize_source_url
+from analyzer.file_state import write_json_atomic
 from analyzer.topic_signature import topic_signature, topic_signature_cooldown_days
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ def _prune_history(
     cutoff = now - timedelta(days=dedupe_days)
     kept: list[dict[str, Any]] = []
     for entry in entries:
-        published_at = _parse_datetime(str(entry.get("published_at") or ""))
+        published_at = _parse_datetime(str(entry.get("recorded_at") or entry.get("published_at") or ""))
         if published_at is None or published_at >= cutoff:
             kept.append(entry)
     return kept
@@ -111,13 +112,18 @@ def _match_reason(
     now: datetime,
     threshold: float,
 ) -> str | None:
+    if entry.get("outcome", "delivered") != "delivered":
+        recorded_at = _parse_datetime(str(entry.get("recorded_at") or ""))
+        cooldown = float(_history_config(config).get("unpublished_cooldown_hours", 1))
+        if recorded_at is None or now - recorded_at > timedelta(hours=cooldown):
+            return None
     current_signature = topic_signature(topic, config)
     entry_signature = str(entry.get("topic_signature") or "") or topic_signature(entry, config)
     if current_signature and entry_signature and current_signature == entry_signature:
         cooldown_days = topic_signature_cooldown_days(current_signature, config)
         if cooldown_days is None:
             return f"topic_signature:{current_signature}"
-        published_at = _parse_datetime(str(entry.get("published_at") or ""))
+        published_at = _parse_datetime(str(entry.get("recorded_at") or entry.get("published_at") or ""))
         if published_at and now - published_at <= timedelta(days=cooldown_days):
             return f"topic_signature:{current_signature}"
 
@@ -155,13 +161,15 @@ def filter_recent_topics(
     for topic in topics:
         reason = None
         matched_entry = None
-        for entry in entries:
-            reason = _match_reason(topic, entry, config, now, threshold)
-            if reason:
-                matched_entry = entry
+        # A theme cooldown must win even if an earlier record shares a URL.
+        for entry in reversed(entries):
+            candidate_reason = _match_reason(topic, entry, config, now, threshold)
+            if candidate_reason and (reason is None or candidate_reason.startswith("topic_signature:")):
+                reason, matched_entry = candidate_reason, entry
+            if reason and reason.startswith("topic_signature:"):
                 break
         if reason:
-            duplicate_published_at = _parse_datetime(str((matched_entry or {}).get("published_at") or ""))
+            duplicate_published_at = _parse_datetime(str((matched_entry or {}).get("recorded_at") or (matched_entry or {}).get("published_at") or ""))
             duplicate_age_hours = None
             if duplicate_published_at:
                 duplicate_age_hours = max((now - duplicate_published_at).total_seconds() / 3600, 0.0)
@@ -187,6 +195,7 @@ def append_topic_history(
     root: Path,
     config: dict[str, Any],
     now: datetime,
+    outcome: str = "delivered",
 ) -> None:
     if not history_enabled(config):
         return
@@ -194,9 +203,16 @@ def append_topic_history(
     path = history_path(root, config)
     entries = _prune_history(_load_history(path), now, history_days(config))
     for topic in topics:
+        urls = sorted(_topic_urls(topic))
+        entries = [entry for entry in entries if not (
+            (entry.get("recorded_at") or entry.get("published_at")) == now.isoformat()
+            and entry.get("id") == topic.get("id") and entry.get("evidence_urls") == urls
+        )]
         entries.append(
             {
-                "published_at": now.isoformat(),
+                "recorded_at": now.isoformat(),
+                "published_at": now.isoformat() if outcome == "delivered" else None,
+                "outcome": outcome,
                 "id": topic.get("id"),
                 "title_zh": topic.get("title_zh"),
                 "summary": topic.get("summary"),
@@ -205,6 +221,5 @@ def append_topic_history(
             }
         )
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, entries)
     logger.info("Topic history updated: %s (%d entries)", path, len(entries))

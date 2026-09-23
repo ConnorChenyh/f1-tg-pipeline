@@ -20,6 +20,7 @@ STAGE_TOPICS = "topics"
 STAGE_DIGEST = "digest"
 STAGE_IMAGES = "images"
 STAGE_DELIVERED = "delivered"
+STAGE_FINISHED = "finished"
 STAGE_ORDER = (STAGE_COLLECT, STAGE_TOPICS, STAGE_DIGEST, STAGE_IMAGES, STAGE_DELIVERED)
 
 DEFAULT_MAX_RESUME_AGE_HOURS = 6.0
@@ -31,6 +32,7 @@ class RunState:
     generated_at: str
     window_hours: int
     completed: list[str] = field(default_factory=list)
+    outcome: str = ""
 
     def has(self, stage: str) -> bool:
         return stage in self.completed
@@ -45,6 +47,7 @@ class RunState:
             "generated_at": self.generated_at,
             "window_hours": self.window_hours,
             "completed": list(self.completed),
+            "outcome": self.outcome,
         }
 
 
@@ -97,6 +100,7 @@ def load_run_state(output_dir: Path) -> RunState | None:
             generated_at=str(payload["generated_at"]),
             window_hours=int(payload["window_hours"]),
             completed=[str(item) for item in payload.get("completed", [])],
+            outcome=str(payload.get("outcome", "")),
         )
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         logger.warning("Ignoring unreadable run state %s: %s", path, exc)
@@ -114,6 +118,7 @@ def mark_delivered(output_dir: Path) -> RunState | None:
     if state is None:
         return None
     state.mark(STAGE_DELIVERED)
+    state.outcome = "delivered"
     if not save_run_state(output_dir, state):
         raise OSError(f"could not persist delivered state for {output_dir}")
     return state
@@ -165,8 +170,8 @@ def find_resumable_run(
     if state is None:
         logger.info("Run %s has no usable state; nothing to resume", output_dir.name)
         return None
-    if state.has(STAGE_DELIVERED):
-        logger.info("Run %s already reached delivery; nothing to resume", output_dir.name)
+    if state.has(STAGE_DELIVERED) or state.has(STAGE_FINISHED):
+        logger.info("Run %s is complete (%s); nothing to resume", output_dir.name, state.outcome or "legacy")
         return None
 
     generated_at = parse_generated_at(state.generated_at)

@@ -119,6 +119,7 @@ def _compact_posts(posts: list[PostItem], limit: int = 80) -> list[dict[str, Any
                 "title": post.title,
                 "text": text,
                 "url": post.url,
+                "related_evidence_urls": [item["url"] for item in getattr(post, "extra", {}).get("related_posts", [])],
                 "created_at": post.created_at.isoformat(),
                 "score": post.raw_score,
                 "likes": post.likes,

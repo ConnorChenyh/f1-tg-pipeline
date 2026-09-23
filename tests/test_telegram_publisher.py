@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from PIL import Image
 from unittest.mock import patch
 
 from publisher.telegram import _digest_title_for_telegram
@@ -19,10 +20,8 @@ class TelegramPublisherTests(unittest.TestCase):
             draft_dir = Path(tmp) / "drafts" / "digest"
             images_dir = draft_dir / "images"
             images_dir.mkdir(parents=True)
-            (images_dir / "cover.png").write_bytes(b"png")
-            (images_dir / "slide_01.png").write_bytes(b"png")
-            (images_dir / "slide_02.png").write_bytes(b"png")
-            (images_dir / "slide_last.png").write_bytes(b"png")
+            for name in ("cover.png", "slide_01.png", "slide_02.png", "slide_last.png"):
+                Image.new("RGB", (16, 16)).save(images_dir / name)
             (draft_dir / "draft.json").write_text(
                 json.dumps(
                     {
@@ -60,10 +59,9 @@ class TelegramPublisherTests(unittest.TestCase):
         self.assertEqual(result["chat_id"], "123")
         self.assertEqual(result["text_preview"], "围场过去24H新闻26.07.13")
         self.assertEqual(result["text_chars"], len("围场过去24H新闻26.07.13"))
-        self.assertEqual(len(result["images"]), 3)
+        self.assertEqual(len(result["images"]), 2)
         self.assertTrue(result["images"][0].endswith("cover.png"))
         self.assertTrue(result["images"][1].endswith("slide_01.png"))
-        self.assertTrue(result["images"][2].endswith("slide_02.png"))
         self.assertFalse(any(path.endswith("slide_last.png") for path in result["images"]))
 
     def test_text_is_fixed_title_only(self) -> None:

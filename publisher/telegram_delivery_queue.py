@@ -24,12 +24,15 @@ def _load_queue(path: Path) -> list[dict[str, str]]:
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        deliveries = data.get("deliveries", [])
-        if isinstance(deliveries, list):
-            return [entry for entry in deliveries if isinstance(entry, dict) and entry.get("output_dir")]
-    except (OSError, ValueError, TypeError) as exc:
-        logger.warning("Unable to read pending Telegram deliveries: %s", type(exc).__name__)
-    return []
+        deliveries = data["deliveries"]
+        if not isinstance(deliveries, list) or any(
+            not isinstance(entry, dict) or not isinstance(entry.get("output_dir"), str)
+            or not entry["output_dir"].strip() for entry in deliveries
+        ):
+            raise ValueError("invalid delivery entries")
+        return deliveries
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError("Pending Telegram queue is unreadable; refusing to overwrite it") from exc
 
 
 def _save_queue(path: Path, deliveries: list[dict[str, str]]) -> None:

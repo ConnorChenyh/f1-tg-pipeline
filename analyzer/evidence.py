@@ -1,34 +1,37 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
+from generator.evidence_pack import normalize_source_url
 
 from collectors.base import PostItem
 
 
 def _normalize_url(url: str) -> str:
-    parsed = urlparse(url.strip())
-    path = parsed.path.rstrip("/")
-    return f"{parsed.netloc.lower()}{path}"
+    return normalize_source_url(url)
 
 
 def find_evidence_posts(topic: dict[str, Any], posts: list[PostItem]) -> list[dict[str, Any]]:
-    evidence_urls = topic.get("evidence_urls") or []
+    evidence_urls = list(topic.get("evidence_urls") or [])
+    requested = {_normalize_url(url) for url in evidence_urls}
+    for post in posts:
+        members = [post.url] + [item["url"] for item in post.extra.get("related_posts", [])]
+        if requested.intersection(_normalize_url(url) for url in members):
+            evidence_urls.extend(members)
+    evidence_urls = list(dict.fromkeys(evidence_urls))
     if not evidence_urls:
         return []
 
-    by_url = {_normalize_url(post.url): post for post in posts if post.url}
+    expanded = []
+    for post in posts:
+        expanded.append(post)
+        expanded.extend(PostItem.from_dict(item) for item in post.extra.get("related_posts", []))
+    by_url = {_normalize_url(post.url): post for post in expanded if post.url}
     matched: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     for url in evidence_urls:
         key = _normalize_url(url)
         post = by_url.get(key)
-        if post is None:
-            for post_key, candidate in by_url.items():
-                if key in post_key or post_key in key:
-                    post = candidate
-                    break
         if post is None:
             matched.append(
                 {

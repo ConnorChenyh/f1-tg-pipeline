@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Lock
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
+from analyzer.file_state import write_json_atomic
+from generator.evidence_pack import normalize_source_url
 from analyzer.net import RetryExhaustedError, RetryPolicy, request_with_retry
 from analyzer.url_safety import UnsafeUrlError, assert_fetchable_url, resolve_and_validate
 
@@ -302,42 +309,69 @@ def enrich_evidence_with_articles(
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
     fetch_cfg = config.get("article_fetch", {})
-    delay_sec = float(fetch_cfg.get("delay_sec", 1.0))
-    cache: dict[str, dict[str, Any]] = {}
+    delay_sec = max(0, float(fetch_cfg.get("delay_sec", 1.0)))
+    runtime = config.get("_runtime", {})
+    cache_path = Path(runtime["root"]) / "output" / "article_cache.json" if runtime.get("root") else None
+    max_age = max(0, float(fetch_cfg.get("cache_max_age_sec", 21600)))
+    now = time.time()
+    stored = {}
+    if cache_path and max_age:
+        try:
+            payload = json.loads(cache_path.read_text())
+            stored = {key: item for key, item in payload.items()
+                      if isinstance(item, dict) and isinstance(item.get("fetched_at"), (int, float))
+                      and 0 <= now - item["fetched_at"] < max_age
+                      and item.get("result", {}).get("fetch_status") == "ok"}
+        except (OSError, ValueError, AttributeError, TypeError):
+            stored = {}
+    urls = list(dict.fromkeys(
+        normalize_source_url(post.get("url", "")) for topic in topics
+        for post in topic.get("evidence_posts", []) if post.get("url")
+    ))
+    # Configuration participates in the key, so increasing max_chars or changing
+    # the extractor does not silently reuse an incompatible cached article.
+    settings = json.dumps(fetch_cfg, sort_keys=True)
+    keys = {url: hashlib.sha256(("v1:" + settings + url).encode()).hexdigest() for url in urls}
+    cache = {url: stored[keys[url]]["result"] for url in urls
+             if keys[url] in stored and fetch_cfg.get("enabled", True)}
+    missing = [url for url in urls if url not in cache]
+    domain_locks = {urlparse(url).hostname: Lock() for url in missing}
 
-    enriched_topics: list[dict[str, Any]] = []
+    def fetch(url):
+        # Jina is a shared upstream even when original article domains differ.
+        with domain_locks[urlparse(url).hostname]:
+            result = fetch_article_content(url, config)
+            if delay_sec and result.get("fetch_status") not in {"disabled", "skipped", "unsafe"}:
+                time.sleep(delay_sec)
+            return url, result
+
+    # Keep Jina serial by default; direct HTML-only runs may opt into bounded
+    # concurrency without concurrent requests to the same publisher.
+    workers = max(1, min(4, int(fetch_cfg.get("concurrency", 2))))
+    if fetch_cfg.get("use_jina", True):
+        workers = 1
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for url, result in pool.map(fetch, missing):
+            cache[url] = result
+            if result.get("fetch_status") == "ok":
+                result = dict(result)
+                result["content_hash"] = hashlib.sha256(result.get("article_content", "").encode()).hexdigest()
+                result["fetched_at"] = time.time()
+                cache[url] = result
+                stored[keys[url]] = {"fetched_at": result["fetched_at"], "result": result}
+    if cache_path and max_age and runtime.get("persist") and stored:
+        try:
+            write_json_atomic(cache_path, stored)
+        except OSError as exc:
+            logger.warning("Could not save article cache: %s", type(exc).__name__)
+
+    enriched_topics = []
     for topic in topics:
         item = dict(topic)
-        evidence_posts: list[dict[str, Any]] = []
-
-        for post in topic.get("evidence_posts", []):
-            post_item = dict(post)
-            url = post_item.get("url", "")
-            if not url:
-                evidence_posts.append(post_item)
-                continue
-
-            if url in cache:
-                post_item.update(cache[url])
-                evidence_posts.append(post_item)
-                continue
-
-            fetched = fetch_article_content(url, config)
-            cache[url] = fetched
-            post_item.update(fetched)
-            evidence_posts.append(post_item)
-
-            if delay_sec > 0:
-                time.sleep(delay_sec)
-
-        item["evidence_posts"] = evidence_posts
+        item["evidence_posts"] = [
+            {**post, **cache.get(normalize_source_url(post.get("url", "")), {})}
+            for post in topic.get("evidence_posts", [])
+        ]
         enriched_topics.append(item)
-
-    fetched_count = sum(
-        1
-        for topic in enriched_topics
-        for post in topic.get("evidence_posts", [])
-        if post.get("fetch_status") == "ok"
-    )
-    logger.info("Article fetch: %d URLs loaded with full content", fetched_count)
+    logger.info("Article fetch: %d URLs, %d cache hits", len(urls), len(urls) - len(missing))
     return enriched_topics
