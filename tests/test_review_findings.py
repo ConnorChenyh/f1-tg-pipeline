@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import ExitStack
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,26 +92,27 @@ class R3GuardSeasonTests(unittest.TestCase):
                 "sources": ["https://www.motorsport.com/f1/news/example"],
             }
 
-            with patch.object(run_module, "ROOT", root), \
-                 patch.object(run_module, "load_config", return_value=config), \
-                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
-                 patch.object(run_module, "collect_reddit", return_value=[]), \
-                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
-                 patch.object(run_module, "collect_twitter", return_value=[]), \
-                 patch.object(run_module, "RunContext") as ctx_cls, \
-                 patch.object(run_module, "refresh_calendar", return_value=False), \
-                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
-                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
-                 patch.object(run_module, "build_season_snapshot", return_value={"phase": "x"}), \
-                 patch.object(run_module, "load_season_snapshot", return_value=None), \
-                 patch.object(run_module, "build_season_update_message", return_value="赛季更新"), \
-                 patch.object(run_module, "DeepSeekClient", return_value=client), \
-                 patch.object(run_module, "extract_topics", return_value=[_stub_topic()]), \
-                 patch.object(run_module, "enrich_topics_with_evidence", side_effect=lambda t, _p: t), \
-                 patch.object(run_module, "generate_digest", return_value=(draft, [], ["too_few_items"])), \
-                 patch.object(run_module, "send_text_to_telegram", side_effect=lambda *a, **k: sent.append("season")), \
-                 patch.object(run_module, "save_season_snapshot", side_effect=lambda *a, **k: snapshots.append("snap")), \
-                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--push-telegram"]):
+            with ExitStack() as patches:
+                patches.enter_context(patch.object(run_module, "ROOT", root))
+                patches.enter_context(patch.object(run_module, "load_config", return_value=config))
+                patches.enter_context(patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"))
+                patches.enter_context(patch.object(run_module, "collect_reddit", return_value=[]))
+                patches.enter_context(patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]))
+                patches.enter_context(patch.object(run_module, "collect_twitter", return_value=[]))
+                ctx_cls = patches.enter_context(patch.object(run_module, "RunContext"))
+                patches.enter_context(patch.object(run_module, "refresh_calendar", return_value=False))
+                patches.enter_context(patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False))
+                patches.enter_context(patch.object(run_module, "build_season_context_prompt", return_value=""))
+                patches.enter_context(patch.object(run_module, "build_season_snapshot", return_value={"phase": "x"}))
+                patches.enter_context(patch.object(run_module, "load_season_snapshot", return_value=None))
+                patches.enter_context(patch.object(run_module, "build_season_update_message", return_value="赛季更新"))
+                patches.enter_context(patch.object(run_module, "DeepSeekClient", return_value=client))
+                patches.enter_context(patch.object(run_module, "extract_topics", return_value=[_stub_topic()]))
+                patches.enter_context(patch.object(run_module, "enrich_topics_with_evidence", side_effect=lambda t, _p: t))
+                patches.enter_context(patch.object(run_module, "generate_digest", return_value=(draft, [], ["too_few_items"])))
+                patches.enter_context(patch.object(run_module, "send_text_to_telegram", side_effect=lambda *a, **k: sent.append("season")))
+                patches.enter_context(patch.object(run_module, "save_season_snapshot", side_effect=lambda *a, **k: snapshots.append("snap")))
+                patches.enter_context(patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--push-telegram"]))
                 from analyzer.context import RunContext as RealRunContext
 
                 ctx_cls.now.return_value = RealRunContext.now(24)
@@ -159,26 +161,27 @@ class R4CompensatedResumeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.object(run_module, "ROOT", root), \
-                 patch.object(run_module, "load_config", return_value=config), \
-                 patch.object(run_module, "RunContext") as ctx_cls, \
-                 patch.object(run_module, "refresh_calendar", return_value=False), \
-                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
-                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
-                 patch.object(run_module, "build_season_snapshot", return_value={}), \
-                 patch.object(run_module, "load_season_snapshot", return_value=None), \
-                 patch.object(run_module, "build_season_update_message", return_value=None), \
-                 patch.object(run_module, "DeepSeekClient", return_value=client), \
-                 patch.object(run_module, "collect_reddit", return_value=[]), \
-                 patch.object(run_module, "collect_rss", return_value=[]), \
-                 patch.object(run_module, "collect_twitter", return_value=[]), \
-                 patch.object(run_module, "push_digest_to_telegram", side_effect=lambda *a, **k: deliveries.append("send")), \
-                 patch.object(
+            with ExitStack() as patches:
+                patches.enter_context(patch.object(run_module, "ROOT", root))
+                patches.enter_context(patch.object(run_module, "load_config", return_value=config))
+                ctx_cls = patches.enter_context(patch.object(run_module, "RunContext"))
+                patches.enter_context(patch.object(run_module, "refresh_calendar", return_value=False))
+                patches.enter_context(patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False))
+                patches.enter_context(patch.object(run_module, "build_season_context_prompt", return_value=""))
+                patches.enter_context(patch.object(run_module, "build_season_snapshot", return_value={}))
+                patches.enter_context(patch.object(run_module, "load_season_snapshot", return_value=None))
+                patches.enter_context(patch.object(run_module, "build_season_update_message", return_value=None))
+                patches.enter_context(patch.object(run_module, "DeepSeekClient", return_value=client))
+                patches.enter_context(patch.object(run_module, "collect_reddit", return_value=[]))
+                patches.enter_context(patch.object(run_module, "collect_rss", return_value=[]))
+                patches.enter_context(patch.object(run_module, "collect_twitter", return_value=[]))
+                patches.enter_context(patch.object(run_module, "push_digest_to_telegram", side_effect=lambda *a, **k: deliveries.append("send")))
+                patches.enter_context(patch.object(
                      run_module,
                      "deliver_pending_digests",
                      side_effect=lambda *a, **k: _compensate(root, run_dir, deliveries),
-                 ), \
-                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--resume", "--push-telegram"]):
+                 ))
+                patches.enter_context(patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--resume", "--push-telegram"]))
                 from analyzer.context import RunContext as RealRunContext
 
                 ctx_cls.now.return_value = RealRunContext.now(24)
@@ -228,22 +231,23 @@ class R5TelegramDryRunStateTests(unittest.TestCase):
             config = _base_config(root)
             now = datetime.now(timezone.utc)
 
-            with patch.object(run_module, "ROOT", root), \
-                 patch.object(run_module, "load_config", return_value=config), \
-                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
-                 patch.object(run_module, "collect_reddit", return_value=[]), \
-                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
-                 patch.object(run_module, "collect_twitter", return_value=[]), \
-                 patch.object(run_module, "RunContext") as ctx_cls, \
-                 patch.object(run_module, "refresh_calendar", return_value=False), \
-                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
-                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
-                 patch.object(run_module, "build_season_snapshot", return_value={}), \
-                 patch.object(run_module, "load_season_snapshot", return_value=None), \
-                 patch.object(run_module, "build_season_update_message", return_value=None), \
-                 patch.object(run_module, "DeepSeekClient", return_value=client), \
-                 patch.object(run_module, "push_digest_to_telegram", return_value={"dry_run": True}), \
-                 patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--push-telegram", "--telegram-dry-run"]):
+            with ExitStack() as patches:
+                patches.enter_context(patch.object(run_module, "ROOT", root))
+                patches.enter_context(patch.object(run_module, "load_config", return_value=config))
+                patches.enter_context(patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"))
+                patches.enter_context(patch.object(run_module, "collect_reddit", return_value=[]))
+                patches.enter_context(patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]))
+                patches.enter_context(patch.object(run_module, "collect_twitter", return_value=[]))
+                ctx_cls = patches.enter_context(patch.object(run_module, "RunContext"))
+                patches.enter_context(patch.object(run_module, "refresh_calendar", return_value=False))
+                patches.enter_context(patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False))
+                patches.enter_context(patch.object(run_module, "build_season_context_prompt", return_value=""))
+                patches.enter_context(patch.object(run_module, "build_season_snapshot", return_value={}))
+                patches.enter_context(patch.object(run_module, "load_season_snapshot", return_value=None))
+                patches.enter_context(patch.object(run_module, "build_season_update_message", return_value=None))
+                patches.enter_context(patch.object(run_module, "DeepSeekClient", return_value=client))
+                patches.enter_context(patch.object(run_module, "push_digest_to_telegram", return_value={"dry_run": True}))
+                patches.enter_context(patch.object(run_module.sys, "argv", ["run.py", "--hours", "24", "--push-telegram", "--telegram-dry-run"]))
                 from analyzer.context import RunContext as RealRunContext
 
                 ctx_cls.now.return_value = RealRunContext.now(24)
@@ -304,21 +308,22 @@ class B1MockQueuePollutionTests(unittest.TestCase):
             def boom(*a, **k):
                 raise RuntimeError("telegram down")
 
-            with patch.object(run_module, "ROOT", root), \
-                 patch.object(run_module, "load_config", return_value=config), \
-                 patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"), \
-                 patch.object(run_module, "collect_reddit", return_value=[]), \
-                 patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]), \
-                 patch.object(run_module, "collect_twitter", return_value=[]), \
-                 patch.object(run_module, "RunContext") as ctx_cls, \
-                 patch.object(run_module, "refresh_calendar", return_value=False), \
-                 patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False), \
-                 patch.object(run_module, "build_season_context_prompt", return_value=""), \
-                 patch.object(run_module, "build_season_snapshot", return_value={}), \
-                 patch.object(run_module, "load_season_snapshot", return_value=None), \
-                 patch.object(run_module, "build_season_update_message", return_value=None), \
-                 patch.object(run_module, "push_digest_to_telegram", side_effect=boom), \
-                 patch.object(run_module.sys, "argv", ["run.py", "--mock", "--push-telegram"]):
+            with ExitStack() as patches:
+                patches.enter_context(patch.object(run_module, "ROOT", root))
+                patches.enter_context(patch.object(run_module, "load_config", return_value=config))
+                patches.enter_context(patch.object(run_module, "build_output_dir", return_value=root / "output" / "run1"))
+                patches.enter_context(patch.object(run_module, "collect_reddit", return_value=[]))
+                patches.enter_context(patch.object(run_module, "collect_rss", return_value=[_stub_post(now)]))
+                patches.enter_context(patch.object(run_module, "collect_twitter", return_value=[]))
+                ctx_cls = patches.enter_context(patch.object(run_module, "RunContext"))
+                patches.enter_context(patch.object(run_module, "refresh_calendar", return_value=False))
+                patches.enter_context(patch.object(run_module, "refresh_team_baseline_from_standings", return_value=False))
+                patches.enter_context(patch.object(run_module, "build_season_context_prompt", return_value=""))
+                patches.enter_context(patch.object(run_module, "build_season_snapshot", return_value={}))
+                patches.enter_context(patch.object(run_module, "load_season_snapshot", return_value=None))
+                patches.enter_context(patch.object(run_module, "build_season_update_message", return_value=None))
+                patches.enter_context(patch.object(run_module, "push_digest_to_telegram", side_effect=boom))
+                patches.enter_context(patch.object(run_module.sys, "argv", ["run.py", "--mock", "--push-telegram"]))
                 from analyzer.context import RunContext as RealRunContext
 
                 ctx_cls.now.return_value = RealRunContext.now(24)
