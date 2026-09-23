@@ -4,6 +4,12 @@ Local pipeline that collects F1 discussions from Reddit and RSS (Twitter optiona
 
 ## Documentation
 
+This is an independent personal project. Its development conventions and documentation
+live in this repository; company work logs and other workspace projects are outside its scope.
+
+- [Documentation index](docs/README.md)
+- [Development conventions](docs/development.md)
+
 - `AGENTS.md` - agent navigation, collaboration rules, and common validation commands
 - `docs/architecture.md` - pipeline architecture, module responsibilities, data flow, and quality gates
 - `docs/operations.md` - Docker/VPS deployment, manual triggers, log inspection, and troubleshooting

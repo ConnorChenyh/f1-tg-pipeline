@@ -4,6 +4,16 @@ This project generates a daily Chinese F1 digest as text-card images and can pus
 the result to Telegram. The design goal is not maximum volume; it is a small,
 repeatable pipeline that prefers evidence-backed stories over social noise.
 
+## Project Boundary
+
+This repository owns the F1 collection, generation, rendering and Telegram delivery
+pipeline. It does not depend on company repositories, company databases or their
+work-log processes. External integrations are the configured public news sources,
+Jina Reader, DeepSeek, official F1 data sources and Telegram. Credentials belong in
+this project's environment, and runtime state belongs in its own `output/` mount.
+See [development conventions](development.md) for change and validation rules,
+and [operations](operations.md) for the independent VPS service lifecycle.
+
 ## High-Level Flow
 
 ```text

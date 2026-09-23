@@ -103,11 +103,28 @@ Expected server path:
 /opt/f1-tg-pipeline
 ```
 
-Deploy the latest `main`:
+Deploy an authorized, tested `main` revision. First check that the server checkout
+is clean and that no `run.py` process is active; wait for any active run to finish.
+Do not overwrite local server changes with `reset --hard`.
 
 ```bash
-ssh root@206.237.27.231 'cd /opt/f1-tg-pipeline && git fetch origin main && git reset --hard origin/main && docker compose up -d --build'
+ssh root@206.237.27.231 'cd /opt/f1-tg-pipeline && git status --porcelain && docker compose top'
 ```
+
+After checking those results, fast-forward and build. Run the regression suite in
+an isolated container without the production output mount or network. The running
+scheduler is replaced only after tests pass.
+
+```bash
+ssh root@206.237.27.231 'cd /opt/f1-tg-pipeline && git fetch origin main && git merge --ff-only origin/main && docker compose build && docker run --rm --network none f1-tg-pipeline-f1-tg-pipeline python -m unittest discover -s tests && docker compose up -d --no-build'
+```
+
+Verify the deployed commit, container status and scheduler logs. Keep
+`SCHEDULE_RUN_ON_START=false` for an ordinary deployment. Deployment does not
+imply authorization for an additional manual Telegram publication. If verification
+fails, retain the build/test logs and investigate before triggering any pipeline.
+The VPS checkout and output mount are dedicated to this personal project; do not
+use company deployment scripts, databases or work logs.
 
 Check status:
 
