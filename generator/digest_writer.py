@@ -34,7 +34,7 @@ Return JSON with this exact shape:
     {{
       "ordinal": "一",
       "headline": "小标题（简短）",
-      "content": "5-7句说明，适合完整放进一张文字图片，仅基于证据"
+      "content": "按新闻信息量写作，仅基于证据，完整放进一张图片"
     }},
     {{
       "ordinal": "二",
@@ -51,12 +51,13 @@ Rules:
 - Include {min_items} to {max_items} items
 - ordinals must be Chinese numerals: 一、二、三、四、五
 - Each item covers ONE distinct topic from the input
-- Each item content should be {item_min_chars}-{item_max_chars} Chinese characters, target around {item_target_chars}
-- Never exceed {item_max_chars} Chinese characters for item content; it must fit on one image
-- If a topic has article_content or at least two evidence entries, avoid a short summary; add verified background, involved parties, direct quote/number when available, uncertainty level, and why it matters
-- If evidence is genuinely thin or social-only, use fewer words rather than inventing details, but still explain clearly what is known, what is unknown, and why the uncertainty matters
-- Avoid repetitive caveats; state uncertainty once, then move on
-- Write enough detail for a standalone text image: background, key fact, direct quote/number when available, context, uncertainty, and why it matters
+- There is no minimum or target length and no fixed sentence count. A brief news item may be one or two sentences.
+- Never exceed {item_max_chars} Chinese characters for item content; it must fit on one image.
+- Preserve useful evidence-backed facts, quotes, numbers and essential context. More evidence entries or a fetched article do not by themselves justify a longer item.
+- Every sentence must add reader-relevant information. Do not repeat the headline, pad with generic significance, or add unnecessary explanations of accurately named titles.
+- Evidence limitations and editorial decisions belong only in risk_note or review notes, never in headlines, hook or item content.
+- Omit unsupported details silently. Do not list what an article did not say or explain why you are not adding more.
+- Attribute reports concisely and keep material statuses such as a proposal awaiting approval; do not add generic credibility disclaimers.
 - Use each evidence.content as the source of truth; model_summary is secondary context only
 - When content_basis is article_content, summarize/translate from article_content, not the title or RSS text
 - When source_note says social post only or RSS/title snippet only, keep claims explicitly anchored (视频显示/帖文称/报道标题称) and do not add detail
@@ -221,8 +222,8 @@ def generate_digest(
     digest_title: str,
     min_items: int = 3,
     max_items: int = 5,
-    item_min_chars: int = 240,
-    item_target_chars: int = 300,
+    item_min_chars: int = 0,
+    item_target_chars: int = 0,
     item_max_chars: int = 380,
     fact_check_enabled: bool = True,
     final_review_enabled: bool = True,

@@ -160,7 +160,7 @@ class QualityGuardTests(unittest.TestCase):
 
         self.assertNotIn("unanchored_social_video_claim", codes)
 
-    def test_rich_evidence_item_too_short_is_warned(self) -> None:
+    def test_rich_evidence_short_item_is_not_forced_to_expand(self) -> None:
         draft = {
             "title": "围场过去24H新闻",
             "hook": "",
@@ -190,7 +190,7 @@ class QualityGuardTests(unittest.TestCase):
         )
         codes = {issue.code for issue in issues}
 
-        self.assertIn("too_short_rich_evidence_item", codes)
+        self.assertNotIn("too_short_rich_evidence_item", codes)
         self.assertNotIn(
             "too_short_rich_evidence_item",
             {issue.code for issue in blocking_issues(issues)},

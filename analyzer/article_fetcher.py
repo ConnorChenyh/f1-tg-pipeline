@@ -66,27 +66,37 @@ def _extract_jina_article_body(text: str) -> str:
     if marker in text:
         text = text.split(marker, 1)[1]
 
+    # Reader pages often put navigation and live scores before the article H1.
+    # Locate the article before applying any content budget.
+    heading = re.search(r"(?m)^# (?!#).+", text)
+    if heading:
+        text = text[heading.end():]
+
     paragraphs: list[str] = []
     for block in text.split("\n\n"):
         block = block.strip()
         if not block:
             continue
+        if block.lower().startswith(("*   [terms of use]", "[terms of use]", "copyright:", "gambling problem?")):
+            break
+        # Embedded video captions are unrelated recommendations, not prose.
+        if re.search(r"\(\d{1,2}:\d{2}\)\s*$", block):
+            continue
         if block.startswith(("[", "*", "#", "!", "|", "URL Source:", "Published Time:", "Title:")):
             continue
         if block.lower().startswith(("skip to", "formula 1", "home", "news", "schedule")):
             continue
+        if "![" in block:
+            continue
         plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", block)
         plain = re.sub(r"https?://\S+", "", plain).strip()
-        if len(plain) < 80:
+        if len(plain) < 40:
             continue
         if plain.count("]") > 3 and len(plain) < 200:
             continue
         paragraphs.append(plain)
 
-    if not paragraphs:
-        return _clean_text(text)
-
-    return "\n\n".join(paragraphs[:8])
+    return "\n\n".join(paragraphs)
 
 
 MAX_REDIRECTS = 5
@@ -276,7 +286,7 @@ def fetch_article_content(url: str, config: dict[str, Any]) -> dict[str, Any]:
         return {"fetch_status": "unsafe", "article_content": ""}
 
     timeout_sec = int(fetch_cfg.get("timeout_sec", 15))
-    max_chars = int(fetch_cfg.get("max_chars", 3500))
+    max_chars = int(fetch_cfg.get("max_chars", 8000))
     use_jina = bool(fetch_cfg.get("use_jina", True))
     policy = RetryPolicy.from_config(fetch_cfg.get("retry"))
 
@@ -331,7 +341,7 @@ def enrich_evidence_with_articles(
     # Configuration participates in the key, so increasing max_chars or changing
     # the extractor does not silently reuse an incompatible cached article.
     settings = json.dumps(fetch_cfg, sort_keys=True)
-    keys = {url: hashlib.sha256(("v1:" + settings + url).encode()).hexdigest() for url in urls}
+    keys = {url: hashlib.sha256(("v2:" + settings + url).encode()).hexdigest() for url in urls}
     cache = {url: stored[keys[url]]["result"] for url in urls
              if keys[url] in stored and fetch_cfg.get("enabled", True)}
     missing = [url for url in urls if url not in cache]

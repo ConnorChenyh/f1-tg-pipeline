@@ -44,6 +44,21 @@ STYLE_RISK_PATTERNS = [
     ),
 ]
 
+EDITORIAL_PROCESS_PATTERNS = [
+    (
+        "editorial_process_in_copy",
+        re.compile(
+            r"(?:报道|原文|材料|证据)(?:正文)?中?(?:可直接引用|可引用|可用|可核实)[^。！？\n]{0,24}(?:仅|只有)"
+            r"|(?:因此|所以|故|这里|本文|本稿|我们)[^。！？；\n]{0,8}(?:不作|不做|不予|不再)(?:补充|推测|扩写|延伸)"
+            r"|(?:证据|原文|材料)(?:不足|有限)[^。！？\n]{0,12}(?:无法|不能|不宜)(?:补充|扩写)"
+            r"|(?:报道|消息)(?:不一定|未必)属实"
+            r"|(?:请|需|需要)(?:读者)?自行核实"
+        ),
+        "正文混入了内部核查或写作过程说明；删去这些句子，仅保留新闻事实和必要状态标注，核查局限放在内部备注中，不要补字数。",
+    ),
+]
+
+
 TECHNICAL_TERM_PATTERNS = [
     (
         "possibly_overtranslated_technical_term",
@@ -141,26 +156,15 @@ def _validate_sources(draft: dict[str, Any], topics: list[dict[str, Any]] | None
     return issues
 
 
-def _topic_has_rich_evidence(topic: dict[str, Any] | None) -> bool:
-    if not topic:
-        return False
-    evidence_posts = topic.get("evidence_posts", []) or []
-    if len(evidence_posts) >= 2:
-        return True
-    return any(
-        post.get("fetch_status") == "ok" and (post.get("article_content") or "").strip()
-        for post in evidence_posts
-        if isinstance(post, dict)
-    )
-
-
 def _validate_item_lengths(
     draft: dict[str, Any],
     topics: list[dict[str, Any]] | None,
     min_item_chars: int | None,
     max_item_chars: int | None,
 ) -> list[QualityIssue]:
-    if min_item_chars is None and max_item_chars is None:
+    # Legacy minimum-length arguments remain accepted, but short complete news
+    # must never trigger a request to pad the copy.
+    if max_item_chars is None:
         return []
 
     items = draft.get("items", [])
@@ -174,7 +178,6 @@ def _validate_item_lengths(
         content = item.get("content")
         if not isinstance(content, str):
             continue
-        topic = topics[index - 1] if topics and index - 1 < len(topics) else None
         if max_item_chars is not None and len(content) > max_item_chars:
             issues.append(
                 QualityIssue(
@@ -182,15 +185,6 @@ def _validate_item_lengths(
                     "warn",
                     f"items[{index}].content",
                     f"该条正文 {len(content)} 字，超过单图上限 {max_item_chars}；应删除重复说明和次要背景，确保完整显示在一张图内。",
-                )
-            )
-        if min_item_chars is not None and len(content) < min_item_chars and _topic_has_rich_evidence(topic):
-            issues.append(
-                QualityIssue(
-                    "too_short_rich_evidence_item",
-                    "warn",
-                    f"items[{index}].content",
-                    f"该条有多条证据或网页原文，但正文只有 {len(content)} 字，低于配置下限 {min_item_chars}；应基于证据补足背景、数字、时间线、不确定性和意义。",
                 )
             )
 
@@ -231,6 +225,8 @@ def validate_digest(
                 )
             )
 
+    reader_fields = [(location, text) for location, text in fields if location != "risk_note"]
+    _append_pattern_issues(issues, reader_fields, EDITORIAL_PROCESS_PATTERNS, "error")
     _append_pattern_issues(issues, fields, EVENT_CONFLATION_PATTERNS, "error")
     _append_pattern_issues(issues, fields, TECHNICAL_TERM_PATTERNS, "warn")
     _append_pattern_issues(issues, fields, STYLE_RISK_PATTERNS, "warn")

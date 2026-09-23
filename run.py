@@ -482,8 +482,8 @@ def _main() -> int:
     digest_title = digest_cfg.get("title", "围场过去24H新闻")
     digest_min_items = int(digest_cfg.get("min_items", 3))
     digest_max_items = int(digest_cfg.get("max_items", 5))
-    digest_item_min_chars = int(digest_cfg.get("item_min_chars", 240))
-    digest_item_target_chars = int(digest_cfg.get("item_target_chars", 300))
+    digest_item_min_chars = int(digest_cfg.get("item_min_chars", 0))
+    digest_item_target_chars = int(digest_cfg.get("item_target_chars", 0))
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
     # Mock and dry runs exist to validate the pipeline path, so they must not
     # touch published-topic memory, prune story memory, persist a standings

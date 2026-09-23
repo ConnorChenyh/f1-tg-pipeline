@@ -7,6 +7,7 @@ from typing import Any
 from analyzer.context import RunContext
 from generator.deepseek_client import DeepSeekClient
 from generator.fact_check import _compact_topic_metadata
+from generator.prompts import READER_FACING_STYLE_RULES
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ FINAL_REVIEW_SYSTEM_PROMPT = """你是一名中文 F1 终审编辑，负责在�
 - 保持每个条目的信息密度，但必须适合一张图片；删掉重复免责声明和次要背景
 - 保持标题、条目数量、ordinal、sources 的结构稳定
 """
+
+FINAL_REVIEW_SYSTEM_PROMPT += "\n\n" + READER_FACING_STYLE_RULES
 
 FINAL_REVIEW_USER_TEMPLATE = """Final-review this fact-checked F1 digest before publication.
 
@@ -69,8 +72,8 @@ Review rules:
 - When an evidence entry has content_basis=article_content and fetch_status=ok, treat its content as the original article text and the highest-priority source
 - Decide whether each headline/content is a faithful summary of that topic's evidence; fix omissions, mistranslations, overstatements, unsupported causal claims, and wrong subject/action/object relations
 - Fix punctuation, grammar, awkward Chinese, repeated wording, and ambiguous references
-- Preserve useful verified detail. For article-backed or multi-evidence topics, keep content roughly within the configured one-image range; do not expand beyond one image
-- If a reviewed item is too short but evidence contains verified context, expand using only evidence-backed background, numbers, quotes, timeline, uncertainty, and significance
+- Preserve useful verified detail within one image. There is no minimum or target length; never expand an item simply because it is short
+- Remove reader-irrelevant editorial explanations: how evidence was checked, what the article did not mention, and why the writer will not supplement it. Put necessary internal limitations in review_notes or risk_note only
 - If a reviewed item is too long, compress by removing repeated caveats, secondary color, and redundant background, not by changing facts
 - Fix semantic errors caused by compressing separate actions into one sentence
 - For disputes, preserve the complete reasoning chain: who doubts which claim, and which evidence-backed budget/rule fact explains that doubt. Do not leave the reason as an unrelated final sentence.

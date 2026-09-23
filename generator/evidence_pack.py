@@ -60,7 +60,7 @@ def _source_note(post: dict[str, Any]) -> str:
     return "limited source text; avoid unsupported detail."
 
 
-def build_topic_grounding(topic: dict[str, Any], max_chars: int = 3500) -> dict[str, Any]:
+def build_topic_grounding(topic: dict[str, Any], max_chars: int = 8000) -> dict[str, Any]:
     evidence_items: list[dict[str, Any]] = []
     topic_id = topic.get("id") or "topic"
 
@@ -104,7 +104,7 @@ def build_topic_grounding(topic: dict[str, Any], max_chars: int = 3500) -> dict[
     }
 
 
-def build_digest_grounding(topics: list[dict[str, Any]], max_chars: int = 3500) -> list[dict[str, Any]]:
+def build_digest_grounding(topics: list[dict[str, Any]], max_chars: int = 8000) -> list[dict[str, Any]]:
     return [build_topic_grounding(topic, max_chars=max_chars) for topic in topics]
 
 

@@ -5,8 +5,7 @@ digest:
   title: "围场过去24H新闻"
   min_items: 4
   max_items: 5
-  item_min_chars: 340
-  item_target_chars: 430
+  # No length floor or target: brief news stays brief; only the card ceiling applies.
   item_max_chars: 500
 
 topic_history:
@@ -247,7 +246,7 @@ article_fetch:
   enabled: true
   use_jina: true
   timeout_sec: 15
-  max_chars: 3500
+  max_chars: 8000
   delay_sec: 1.0
   cache_max_age_sec: 21600
   concurrency: 2

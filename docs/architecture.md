@@ -429,3 +429,13 @@ A corrupt queue/checkpoint is surfaced rather than silently discarded.
 names and temperature. `.github/workflows/test.yml` runs offline tests and compilation
 with the pinned dependencies and CJK fonts. The cooldown fixture contains synthetic
 editorial boundary cases, not a claim that offline tests prove LLM factual accuracy.
+
+### Reader-facing copy
+
+Article extraction removes navigation before applying the character budget and
+keeps paragraphs beyond the opening eight. Fetch and grounding budgets allow up
+to 8,000 characters per source; extractor changes invalidate cached article text.
+Copy has no minimum or target length. Preserve useful facts, quotes, and context,
+including in newly published profiles about earlier events. Keep verification
+limitations in internal notes; editorial process disclaimers in reader-facing
+copy block publication. The per-card maximum still applies.

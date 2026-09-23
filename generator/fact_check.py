@@ -118,8 +118,8 @@ Rules:
 - For a dispute or scepticism item, make the logic explicit: identify the challenged claim and connect the stated reason or budget/rule evidence to why it is being challenged.
 - Verify Grand Prix names, venues and dates against the supplied dated official calendar and article evidence. A race name need not match the host country. Do not invent cancellation/relocation history or treat stale, unverified or unavailable calendar context as a current official contradiction.
 - Fix every deterministic quality guard issue before returning JSON
-- Preserve the configured per-item length unless evidence is genuinely thin; do not compress article-backed items into short summaries
-- For article-backed or multi-evidence items, expand with only verified context when a content field is too short
+- Preserve reader-relevant verified facts; do not enforce minimum length or expand a complete short item
+- Delete editorial process commentary, evidence-inventory statements and lists of absent details; keep limitations in fact_check_notes or risk_note only
 - If an item is too long, remove repetition and secondary detail first; keep it within the configured one-image limit
 - For social/video-only evidence, write “视频显示/帖文称/讨论称” instead of unanchored fact wording
 - Avoid ambiguous translations such as 新科冠军 unless evidence clearly supports the exact meaning
