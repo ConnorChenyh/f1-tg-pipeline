@@ -791,7 +791,9 @@ def _main() -> int:
         state.mark(STAGE_DIGEST)
         save_run_state(output_dir, state)
 
-        image_paths = generate_images_for_digest(draft, digest_topics, draft_dir, config)
+        image_paths = generate_images_for_digest(
+            draft, digest_topics, draft_dir, config, generated_at=run_context.generated_at
+        )
         state.mark(STAGE_IMAGES)
         save_run_state(output_dir, state)
 

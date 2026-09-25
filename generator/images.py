@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 from PIL import Image, ImageDraw, ImageFont
@@ -44,6 +46,24 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageF
     return ImageFont.load_default()
 
 
+_NO_LINE_START = set("，。！？；：、）】》」』”’％…,.!?;:%)]}")
+_NO_LINE_END = set("（【《「『“‘([{")
+
+
+def _wrap_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for token in _WRAP_TOKEN_RE.findall(text):
+        if tokens and (
+            token.isspace()
+            or token[0] in _NO_LINE_START
+            or tokens[-1].rstrip()[-1:] in _NO_LINE_END
+        ):
+            tokens[-1] += token
+        else:
+            tokens.append(token)
+    return tokens
+
+
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
     if not text:
         return [""]
@@ -54,7 +74,7 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, 
             lines.append("")
             continue
         current = ""
-        for token in _WRAP_TOKEN_RE.findall(paragraph):
+        for token in _wrap_tokens(paragraph):
             if token.isspace() and not current:
                 continue
 
@@ -81,7 +101,15 @@ def _draw_multiline(
     line_spacing: int = 12,
 ) -> int:
     x, y = xy
-    for line in _wrap_text(draw, text, font, max_width):
+    lines = _wrap_text(draw, text, font, max_width)
+    if len(lines) > 1 and len(lines[-1].strip()) == 1:
+        previous = _wrap_tokens(lines[-2])
+        if len(previous) > 1:
+            tail = previous[-1] + lines[-1]
+            if draw.textbbox((0, 0), tail, font=font)[2] <= max_width:
+                lines[-2] = "".join(previous[:-1]).rstrip()
+                lines[-1] = tail
+    for line in lines:
         draw.text((x, y), line, font=font, fill=fill)
         bbox = draw.textbbox((x, y), line or "A", font=font)
         y = bbox[3] + line_spacing
@@ -215,7 +243,7 @@ def render_item_card_with_measure(
         drawn_lines.append(line)
         y += advance
 
-    draw.text((margin_x, height - 58), footer_label, font=_load_font(24), fill="#DADAE0")
+    draw.text((margin_x, height - 58), footer_label, font=_load_font(24), fill="#777780")
 
     # Compare on whitespace-stripped text: wrapping legitimately drops spaces at
     # line breaks, and counting them would make the loss signal noisy. Only the
@@ -282,6 +310,8 @@ def generate_images_for_digest(
     topics: list[dict[str, Any]],
     draft_dir: Path,
     config: dict[str, Any],
+    *,
+    generated_at: datetime | None = None,
 ) -> list[str]:
     image_cfg = config.get("images", {})
     width = int(image_cfg.get("width", 1080))
@@ -293,7 +323,12 @@ def generate_images_for_digest(
     output_root = draft_dir.parent.parent
 
     items = draft.get("items", [])
-    cover = render_digest_summary_card(items, width, height)
+    edition = ""
+    if generated_at is not None:
+        if generated_at.tzinfo is None:
+            raise ValueError("generated_at must include a timezone")
+        edition = generated_at.astimezone(ZoneInfo("Asia/Hong_Kong")).strftime("%Y-%m-%d %H:%M HKT")
+    cover = render_digest_summary_card(items, width, height, footer_label=edition or "概要")
     cover_path = images_dir / "cover.png"
     cover.save(cover_path, format="PNG")
     saved_paths.append(str(cover_path.relative_to(output_root)))
@@ -304,7 +339,10 @@ def generate_images_for_digest(
         headline = item.get("headline", "")
         content = item.get("content", "")
 
-        card, measure = render_item_card_with_measure(ordinal, headline, content, width, height)
+        card, measure = render_item_card_with_measure(
+            ordinal, headline, content, width, height,
+            footer_label=edition or "围场过去24H新闻",
+        )
         slide_path = images_dir / f"slide_{idx:02d}.png"
         card.save(slide_path, format="PNG")
         saved_paths.append(str(slide_path.relative_to(output_root)))
