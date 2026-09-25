@@ -71,6 +71,10 @@ Review rules:
 - Map item 一/二/三... to the grounded topic in the same order; for each item, read all evidence entries under that topic before editing
 - When an evidence entry has content_basis=article_content and fetch_status=ok, treat its content as the original article text and the highest-priority source
 - Decide whether each headline/content is a faithful summary of that topic's evidence; fix omissions, mistranslations, overstatements, unsupported causal claims, and wrong subject/action/object relations
+- Apply the shared reader-facing rules to both headlines and content, even if the fact-checked draft preserved the original English: use conventional Chinese place names and ordinary expressions, while retaining uncertain technical terms and driver/team names.
+- Rewrite long item headlines around one main development. Move supporting results and background into the body; retain necessary source attribution and provisional status. This may change item headlines, but never the fixed digest title.
+- Keep natural paragraph breaks. Remove tangential pundit commentary or other races' cancellation/relocation history unless essential to explain this specific news item; do not carry every source article's side story into the card.
+- Replace awkward literal metaphors with faithful attributed indirect speech when needed; do not keep an unnatural translation merely because it appeared in the fact-checked draft.
 - Fix punctuation, grammar, awkward Chinese, repeated wording, and ambiguous references
 - Preserve useful verified detail within one image. There is no minimum or target length; never expand an item simply because it is short
 - Remove reader-irrelevant editorial explanations: how evidence was checked, what the article did not mention, and why the writer will not supplement it. Put necessary internal limitations in review_notes or risk_note only
