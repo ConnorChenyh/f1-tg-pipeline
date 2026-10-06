@@ -85,6 +85,7 @@ Review rules:
 - Re-check time wording: evidence.created_at, RSS publication time, and article publication time are not event time. Remove or soften “今天/周二/昨日/本周/过去24小时内发生” unless evidence.content explicitly supports that event timing
 - For event recaps whose event date is unclear or earlier than the run window, phrase them as “报道回顾/报道发布/视频显示”, not as newly happened events
 - Re-check names: drivers, team principals, teams, circuits, race names, seasons, car model years
+- Re-check each quote and number against its source sentence: same speaker, same direction (negation, question, hedging kept), same counting scope; a fact-checked draft can still carry a reversed quote or a widened/narrowed statistic
 - Re-check technical terms against evidence. If a Chinese translation is not standard or you are not sure, keep the English term
 - Preserve acronyms exactly as written in evidence. If the source says “sistema STM”, keep STM; if another evidence text says “FTM blown exhaust system”, do not treat it as higher priority than article_content unless the article itself supports it
 - If a claim is unsupported, remove it or downgrade it to 报道称/讨论称/分析认为 according to evidence
