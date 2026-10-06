@@ -148,4 +148,6 @@ TELEGRAM_BOT_TOKEN=123:dry-run TELEGRAM_CHAT_ID=0 .venv/bin/python run.py --tele
   不属于每日调度或通用初始化流程。
 - `scripts/replay_digest.py` 在既有运行上重跑写作环节，用于提示词对比验证；
   不属于每日调度。
+- `scripts/send_text.py` 把纯文本文件发到 `TELEGRAM_CHAT_ID`（如巡检摘要），
+  超长时按段落拆成多条；不属于每日调度。
 - `docs/REVIEW_*.md` 是历史评审材料，不能当作当前待修列表或开发规范。

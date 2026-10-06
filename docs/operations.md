@@ -70,6 +70,10 @@ TWITTER_CT0=...
 # (paid model calls; output in output/replay/; --images renders cards,
 # --push-telegram also sends with a 【重跑对比】 title)
 .venv/bin/python scripts/replay_digest.py output/<timestamp>
+
+# Send a plain-text file (e.g. a review summary) to TELEGRAM_CHAT_ID; long text is
+# split on paragraphs. --dry-run prints the messages instead.
+.venv/bin/python scripts/send_text.py <file.txt>
 ```
 
 To replay a production run locally, copy its `season_snapshot.json` and
