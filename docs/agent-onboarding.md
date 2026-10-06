@@ -50,12 +50,22 @@ Docker 的 `scheduler.py` 负责每日生成和投递；当前没有独立的“
 | `python run.py --telegram-only output/<run> --telegram-dry-run` | 本地校验，无模型调用 | 校验既有稿件、图片与质量标记 | 不发送 |
 | `python run.py --hours 24 --push-telegram` | 真实采集与模型调用 | 更新运行及发布状态，先尝试补偿队列 | 真实发送 |
 | `python run.py --telegram-only output/<run>` | 无模型调用 | 按投递检查点发送并完成发布历史 | 真实发送 |
+| `python scripts/replay_digest.py <run>` | 付费模型调用（写稿、核查、终审），无采集 | 只写 `output/replay/<run>_<时间>/`，不碰共享历史、缓存和队列 | 不发送 |
+| `python scripts/replay_digest.py <run> --push-telegram` | 同上，并渲染图片 | 同上 | 真实发送，标题带“【重跑对比】” |
 
 表中 `python` 使用仓库 `.venv/bin/python`。`--resume` 会继续尚未完成的
 运行；找不到可恢复运行或超过期限时，会开始新运行，并非只读检查。
 `--telegram-dry-run` 单独用于完整生成时仍会调用模型；检查已有产物时应
 与 `--telegram-only` 配对。完整生成不发送也会改变本地编辑状态，真实
 模型验证应使用独立测试 checkout 的 `output/`，不要挂载生产 output。
+
+验证写稿、核查或终审提示词时，优先用 `scripts/replay_digest.py` 重跑某次真实
+运行：它使用原运行 `meta.json` 中的话题与正文证据、原始运行时间和
+`season_snapshot.json`，只重新执行写稿、事实核查和终审，并在输出目录生成
+新旧稿逐条对比的 `comparison.md`。源目录至少需要 `season_snapshot.json`、
+`drafts/digest/meta.json`；有 `draft.json` 时对比中会包含原稿。话题选择
+和采集不会重跑，因此它只能验证写作环节。模型输出有随机性，单次重跑的差异
+不能直接归因于提示词，应结合多次运行或多天产出判断。
 
 ## Daily Output Review
 
@@ -116,7 +126,7 @@ TELEGRAM_BOT_TOKEN=123:dry-run TELEGRAM_CHAT_ID=0 .venv/bin/python run.py --tele
 | 没有启动 / 超时 | `scheduler.py`、调度环境、容器日志 | 区分主机休眠、调度与子进程故障；相关回归在 `tests/test_scheduler.py` |
 | 来源失败 / 正文缺失 | `collectors/`、`analyzer/article_fetcher.py` | 核对真实来源和抽取结果；采集测试见 `test_pipeline_hardening.py`，抽取见 `test_article_extraction.py` |
 | 重复、选题不足 | shortlist、evidence/history gate、meta 跳过原因 | 检查冷却和证据，不清空历史凑条数；见 `test_story_governance.py`、`test_topic_history.py` |
-| 错误事实 / 表述误导 | 原文、`generator/` 写稿/核查/终审/质量关卡 | 用故障样例和正常样例验证；见 `test_quality_pipeline.py`、`test_reader_facing_style.py` |
+| 错误事实 / 表述误导 | 原文、`generator/` 写稿/核查/终审/质量关卡 | 用故障样例和正常样例验证；见 `test_quality_pipeline.py`、`test_reader_facing_style.py`；提示词改动用 `scripts/replay_digest.py` 重跑出问题的运行对比 |
 | 图片截断 / 标点排版 | `generator/images.py` 和测量报告 | 运行 `test_images.py`，查看真实渲染结果 |
 | 投递失败 / 部分发送 | `publisher/`、队列和检查点 | 保留已确认批次，按运维手册恢复；见 `test_telegram_retry.py`、`test_delivery_lifecycle.py` |
 
@@ -136,4 +146,6 @@ TELEGRAM_BOT_TOKEN=123:dry-run TELEGRAM_CHAT_ID=0 .venv/bin/python run.py --tele
 - 离线端到端测试夹具：`tests/harness.py`；不是线上运行入口。
 - `scripts/create_driver_nicknames_feature.py` 是指定文章的专题卡片脚本，
   不属于每日调度或通用初始化流程。
+- `scripts/replay_digest.py` 在既有运行上重跑写作环节，用于提示词对比验证；
+  不属于每日调度。
 - `docs/REVIEW_*.md` 是历史评审材料，不能当作当前待修列表或开发规范。

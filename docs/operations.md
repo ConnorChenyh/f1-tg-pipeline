@@ -65,7 +65,16 @@ TWITTER_CT0=...
 
 # Validate Telegram payload without sending
 .venv/bin/python run.py --telegram-only output/<timestamp> --telegram-dry-run
+
+# Rerun writing/fact check/final review on an existing run to compare prompt changes
+# (paid model calls; output in output/replay/; --images renders cards,
+# --push-telegram also sends with a 【重跑对比】 title)
+.venv/bin/python scripts/replay_digest.py output/<timestamp>
 ```
+
+To replay a production run locally, copy its `season_snapshot.json` and
+`drafts/digest/{meta.json,draft.json}` into `output/inspection/<timestamp>/`
+first and pass that directory.
 
 ## Docker Deployment
 
