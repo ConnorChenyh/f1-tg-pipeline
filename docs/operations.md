@@ -225,6 +225,8 @@ Check `drafts/digest/meta.json`:
 
 If the output is still too small, inspect `shortlisted_posts.json` and consider:
 
+- increasing `digest.topic_candidate_extra` (spare extraction candidates; each
+  extra topic adds a few article fetches to the run)
 - increasing RSS sources
 - lowering `evidence_gate.min_article_backed_topics`
 - increasing `shortlist.max_social_only_posts`

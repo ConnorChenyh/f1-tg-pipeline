@@ -485,6 +485,9 @@ def _main() -> int:
     digest_item_min_chars = int(digest_cfg.get("item_min_chars", 0))
     digest_item_target_chars = int(digest_cfg.get("item_target_chars", 0))
     digest_item_max_chars = int(digest_cfg.get("item_max_chars", 380))
+    # Spare candidates for the evidence, history and cooldown gates to remove;
+    # the digest is still capped to max_items, highest heat first.
+    topic_candidate_extra = max(0, int(digest_cfg.get("topic_candidate_extra", 0)))
     # Mock and dry runs exist to validate the pipeline path, so they must not
     # touch published-topic memory, prune story memory, persist a standings
     # cache, or advance the season snapshot; otherwise a throwaway run
@@ -655,7 +658,7 @@ def _main() -> int:
                 heat_threshold,
                 run_context,
                 min_topics=digest_min_items,
-                max_topics=digest_max_items,
+                max_topics=digest_max_items + topic_candidate_extra,
             )
         except RunDeadlineExceeded as exc:
             _persist_model_usage(draft_dir, client)

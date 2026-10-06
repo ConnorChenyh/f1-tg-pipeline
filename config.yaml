@@ -5,6 +5,10 @@ digest:
   title: "围场过去24H新闻"
   min_items: 4
   max_items: 5
+  # Extra topic candidates requested from extraction so the evidence, history and
+  # cooldown gates rarely leave fewer than min_items; the digest still uses at
+  # most max_items, highest heat first.
+  topic_candidate_extra: 2
   # No length floor or target: brief news stays brief; only the card ceiling applies.
   item_max_chars: 500
 

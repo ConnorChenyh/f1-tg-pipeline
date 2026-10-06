@@ -111,6 +111,13 @@ The topic extractor returns candidate topics with:
 The heat threshold is applied, but if there are too few candidates, the extractor
 can backfill from lower-heat model candidates before evidence gates run.
 
+Extraction asks for `digest.min_items` to `digest.max_items +
+digest.topic_candidate_extra` candidates (default extra 0; `config.yaml` uses 2).
+The spares give the evidence, history and cooldown gates room to remove topics
+without dropping below `min_items`; after the gates the digest still takes at most
+`max_items` topics, highest heat first. `topics.json` keeps every surviving
+candidate, while `meta.json.topics` holds the ones actually written.
+
 ## Evidence Layer
 
 `analyzer/evidence.py` maps topic evidence URLs back to collected posts.
