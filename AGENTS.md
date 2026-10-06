@@ -14,6 +14,7 @@ evidence-grounded, and compatible with the existing Docker/VPS deployment.
 
 ## 文档入口
 
+- [Agent 接手指南](docs/agent-onboarding.md)：首次接手、验证命令、每日产出检查与修复路径。
 - [文档索引](docs/README.md)：按任务找到对应规范。
 - [开发规范](docs/development.md)：环境、改动边界、测试和交付要求。
 - [架构文档](docs/architecture.md)：模块职责、数据流和持久化状态。
@@ -58,7 +59,7 @@ evidence-grounded, and compatible with the existing Docker/VPS deployment.
 # Local full run
 .venv/bin/python run.py --hours 24
 
-# Local mock full path
+# Mock path (network collection, no DeepSeek calls or Telegram sends)
 .venv/bin/python run.py --mock --hours 24
 ```
 

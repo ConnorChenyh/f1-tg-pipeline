@@ -4,6 +4,7 @@
 
 | 需要做什么 | 阅读文档 |
 | --- | --- |
+| 新 agent 首次接手、每日检查与修复 | [Agent 接手指南](agent-onboarding.md) |
 | 安装、配置、首次运行 | [项目 README](../README.md) |
 | 修改代码、提示词或测试 | [开发规范](development.md) |
 | 理解数据流、质量关卡和状态管理 | [架构文档](architecture.md) |

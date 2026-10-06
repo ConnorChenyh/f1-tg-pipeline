@@ -8,6 +8,7 @@ This is an independent personal project. Its development conventions and documen
 live in this repository; company work logs and other workspace projects are outside its scope.
 
 - [Documentation index](docs/README.md)
+- [Agent onboarding and daily review](docs/agent-onboarding.md)
 - [Development conventions](docs/development.md)
 
 - `AGENTS.md` - agent navigation, collaboration rules, and common validation commands
@@ -16,8 +17,8 @@ live in this repository; company work logs and other workspace projects are outs
 
 ## Prerequisites
 
-- Python 3.10+
-- `rdt-cli` for Reddit collection (installed via `pip install -r requirements.txt`)
+- Python 3.11 (Docker and CI baseline)
+- `rdt-cli` for Reddit collection (included in `requirements.lock`)
 
 ```bash
 pipx install rdt-cli   # alternative if you use pipx globally
@@ -35,13 +36,14 @@ Set `TWITTER_AUTH_TOKEN` and `TWITTER_CT0` in `.env` if you want Twitter as a so
 
 ```bash
 cd f1-xhs-pipeline
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.lock
 cp .env.example .env
 ```
 
-Edit `.env` and set:
+Set `DEEPSEEK_API_KEY` for real generation. Telegram values are required for
+sending and existing-payload dry-run validation; offline unit tests need neither:
 
 ```
 DEEPSEEK_API_KEY=sk-...
@@ -61,7 +63,7 @@ python run.py --hours 24
 # Collect only (no DeepSeek calls)
 python run.py --dry-run
 
-# Offline end-to-end without API key
+# Mock generation without a DeepSeek key (still collects over the network)
 python run.py --mock
 
 # Continue the most recent unfinished run instead of collecting again
@@ -77,7 +79,9 @@ python run.py --telegram-only output/<timestamp>
 python run.py --telegram-only output/<timestamp> --telegram-dry-run
 ```
 
-`--mock` only validates the local pipeline path. It does not evaluate final
+`--mock` still collects sources and may fetch calendar, standings and article
+pages; it is not an offline fixture runner. Use the unit test suite for offline
+checks. `--mock` only validates the local pipeline path. It does not evaluate final
 Chinese copy quality because it intentionally skips DeepSeek and uses simple
 placeholder text. `--mock` and `--dry-run` are read-only with respect to
 persistent memory: they never write topic history, the story DB, the standings

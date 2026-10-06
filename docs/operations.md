@@ -6,7 +6,7 @@ triggers, and common troubleshooting.
 ## Local Setup
 
 ```bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.lock   # exact pinned versions, as used in Docker
 cp .env.example .env
@@ -21,7 +21,10 @@ installs. After an intentional upgrade, refresh the lock:
 .venv/bin/python -m pip freeze > requirements.lock
 ```
 
-Required `.env` values:
+`DEEPSEEK_API_KEY` is required for real generation; Telegram values are required
+for sending and existing-payload dry-run validation. Offline unit tests and mock
+generation need no model key
+(mock generation still accesses news sources over the network):
 
 ```bash
 DEEPSEEK_API_KEY=sk-...
@@ -51,7 +54,7 @@ TWITTER_CT0=...
 # Full local run
 .venv/bin/python run.py --hours 24
 
-# Mock full path without DeepSeek
+# Mock path without DeepSeek (network collection still runs)
 .venv/bin/python run.py --mock --hours 24
 
 # Full run and push to Telegram
@@ -153,6 +156,9 @@ ssh root@206.237.27.231 'cd /opt/f1-tg-pipeline && ls -lt output/manual-run-*.lo
 ```
 
 ## Output Inspection
+
+For the daily inspection order, success criteria and repair decisions, follow
+[the agent handoff workflow](agent-onboarding.md#daily-output-review).
 
 Find latest run:
 
