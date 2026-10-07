@@ -62,6 +62,11 @@ Telegram publisher
 Collectors return `PostItem` objects from `collectors/base.py`.
 
 - `collectors/reddit.py` tries `rdt-cli` first and falls back to Reddit RSS when CLI access fails.
+  Both paths use the submitted URL as the post URL (the RSS entry's `[link]`), so a
+  link post carries its news article for tiering and article fetching; the RSS
+  comments page is kept in `extra.comments_url`. When a social share and a
+  publisher feed item have the same URL and equal engagement, URL dedupe keeps the
+  publisher item.
 - `collectors/rss.py` reads configured F1 RSS feeds and respects the run time window.
 - `collectors/twitter.py` is optional and skipped unless credentials are present.
 

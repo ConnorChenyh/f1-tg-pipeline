@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 import logging
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +16,10 @@ import yaml
 from collectors.base import PostItem
 
 logger = logging.getLogger(__name__)
+
+# Reddit's feed puts the submitted URL in the entry body as "<a href=...>[link]</a>";
+# the entry's own link is always the comments page.
+RSS_SUBMITTED_LINK_RE = re.compile(r'<a href="([^"]+)">\[link\]</a>')
 
 
 def _find_rdt_command() -> str | None:
@@ -171,14 +177,18 @@ def _collect_subreddit_rss(subreddit: str, limit: int) -> list[PostItem]:
             created = datetime.now(timezone.utc)
 
         text = f"{title}\n\n{summary}".strip() if summary else title
+        # Match the rdt path, which uses the submitted URL: a link post then
+        # carries its news article, and media/self posts stay non-article URLs.
+        submitted = RSS_SUBMITTED_LINK_RE.search(summary)
+        url = html.unescape(submitted.group(1)) if submitted else link
         posts.append(
             PostItem(
                 source="reddit",
                 text=text[:4000],
                 title=title,
-                url=link,
+                url=url,
                 created_at=created,
-                extra={"source_label": f"rss:{subreddit}", "subreddit": subreddit},
+                extra={"source_label": f"rss:{subreddit}", "subreddit": subreddit, "comments_url": link},
             )
         )
 

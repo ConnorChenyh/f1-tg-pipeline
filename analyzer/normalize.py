@@ -32,6 +32,13 @@ def filter_by_window(posts: Iterable[PostItem], window_hours: int) -> list[PostI
     return filtered
 
 
+SOCIAL_SOURCES = {"reddit", "twitter", "x"}
+
+
+def _dedupe_rank(post: PostItem) -> tuple[int, bool]:
+    return post.likes + post.replies + post.retweets, post.source not in SOCIAL_SOURCES
+
+
 def dedupe_posts(posts: list[PostItem]) -> list[PostItem]:
     by_url: dict[str, PostItem] = {}
     for post in posts:
@@ -42,9 +49,9 @@ def dedupe_posts(posts: list[PostItem]) -> list[PostItem]:
         if existing is None:
             by_url[key] = post
             continue
-        if (post.likes + post.replies + post.retweets) > (
-            existing.likes + existing.replies + existing.retweets
-        ):
+        # On equal engagement prefer the publisher's own feed item over a social
+        # share of the same URL; it carries the outlet's description and time.
+        if _dedupe_rank(post) > _dedupe_rank(existing):
             by_url[key] = post
 
     # Different URLs remain available as independent evidence. Story-level

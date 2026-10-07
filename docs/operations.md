@@ -413,7 +413,9 @@ docker compose up -d --build
 
 The server may fail `rdt-cli` access. The collector falls back to Reddit RSS and
 skips Reddit search when CLI subreddit access is unavailable. This is expected
-on the current VPS.
+on the current VPS. RSS link posts still use their submitted article URL, so a
+news link shared on Reddit can be fetched as article evidence; image, video and
+self posts stay social-only.
 
 ### Telegram push fails
 
