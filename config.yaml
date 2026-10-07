@@ -87,7 +87,12 @@ source_tiers:
       - espn.com
       - skysports.com
       - bbc.com
+      - bbc.co.uk
       - the-race.com
+      # Mainstream press and wire services with regular F1 reporting.
+      - theguardian.com
+      - reuters.com
+      - apnews.com
   specialist_media:
     weight: 1.25
     domains:
@@ -95,6 +100,12 @@ source_tiers:
       - planetf1.com
       - formu1a.uno
       - auto-motor-und-sport.de
+      - motorsport-total.com
+      - racer.com
+      - motorsportmagazine.com
+      - crash.net
+      - speedcafe.com
+      - motorsportweek.com
   rss:
     weight: 1.0
     sources:
