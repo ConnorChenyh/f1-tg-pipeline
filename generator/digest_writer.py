@@ -4,10 +4,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from analyzer.context import RunContext
 from generator.deepseek_client import DeepSeekClient, ResponseShapeError
-from generator.evidence_pack import build_digest_grounding
+from generator.evidence_pack import build_digest_grounding, collect_evidence_source_urls, normalize_source_url
 from generator.fact_check import fact_check_digest
 from generator.final_review import final_review_digest
 from generator.prompts import DIGEST_SYSTEM_PROMPT
@@ -224,6 +225,36 @@ def repair_digest(
     quality_issues: list[dict[str, str]],
 ) -> tuple[dict[str, Any], list[str]]:
     """Return a rejected draft to the editor with evidence and exact failures."""
+    # Some publishers identify an article by its final numeric path segment.
+    # Restore an invented slug only when the evidence has exactly one URL for
+    # that host, route and article ID. Different IDs/domains remain blocked.
+    expected = collect_evidence_source_urls(topics)
+    repaired_sources = []
+    source_notes = []
+    for source in draft.get("sources", []) or []:
+        normalized = normalize_source_url(source)
+        parsed = urlsplit(normalized)
+        parts = parsed.path.strip("/").split("/")
+        candidates = []
+        if normalized not in expected and len(parts) >= 2 and parts[-1].isdigit():
+            for url in sorted(expected):
+                other = urlsplit(url)
+                other_parts = other.path.strip("/").split("/")
+                if (parsed.scheme == other.scheme and parsed.netloc == other.netloc
+                        and parts[:-2] == other_parts[:-2] and parts[-1] == other_parts[-1]):
+                    candidates.append(url)
+        if len(candidates) == 1:
+            repaired_sources.append(candidates[0])
+            source_notes.append("返工提示：按同一来源域名、栏目和文章编号恢复证据中的原始链接。")
+        else:
+            repaired_sources.append(source)
+    if source_notes:
+        draft = dict(draft, sources=repaired_sources)
+        source_errors_remain = any(normalize_source_url(url) not in expected for url in repaired_sources)
+        other_errors = any(issue.get("severity") == "error" and issue.get("code") != "unknown_source"
+                           for issue in quality_issues)
+        if not source_errors_remain and not other_errors:
+            return draft, source_notes
     repaired, notes = _run_review_stage(
         lambda: final_review_digest(
             client, draft, topics, run_context, digest_title,
@@ -233,7 +264,7 @@ def repair_digest(
         "quality rework",
     )
     repaired["title"] = digest_title
-    return repaired, [f"返工提示：{note}" for note in notes]
+    return repaired, source_notes + [f"返工提示：{note}" for note in notes]
 
 
 def generate_digest(

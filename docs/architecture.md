@@ -195,7 +195,9 @@ Before returning blockers, the writer returns the draft to the editor with its
 evidence and exact quality issues for up to two rework passes. After rendering,
 `run.py` applies up to two additional repair/render passes for remaining blockers
 and truncated cards. Every revised draft is revalidated; quality gates are never
-bypassed. Exhausted rejection returns a nonzero exit code and remains resumable.
+bypassed. A changed article slug can be restored without a model call only when
+host, route and numeric article ID uniquely match an evidence URL. Unknown
+articles and ambiguous matches still require editorial repair. Exhausted rejection returns a nonzero exit code and remains resumable.
 The scheduler runs up to three attempts within one total deadline, resumes failed
 stages, and attempts a Telegram failure alert if recovery is exhausted. Delivery
 checkpoints prevent duplicate sends and prohibit rewriting partially sent payloads. Blocking codes caused by a regex false positive are visible in

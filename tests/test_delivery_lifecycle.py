@@ -115,6 +115,17 @@ class DeliveryLifecycleTests(unittest.TestCase, RunHarness):
         self.assertEqual(_published_state(self.root)[1], 0)
         self.assertEqual(load_run_state(self.directory()).outcome, "generated")
 
+    def test_empty_topic_stage_is_retried_on_resume(self):
+        from tests.harness import _stub_topic
+        with patch.object(run, "extract_topics", side_effect=[[], [_stub_topic()]]) as extract, \
+             patch.object(run, "fill_with_article_fallbacks", side_effect=lambda topics, skipped, *a: (topics, skipped)), \
+             patch.object(run, "push_digest_to_telegram", return_value={"image_count": 2}) as send:
+            self.assertEqual(self.invoke("--push-telegram"), 1)
+            self.assertEqual(self.invoke("--resume", "--push-telegram"), 0)
+        self.assertEqual(extract.call_count, 2)
+        send.assert_called_once()
+        self.assertEqual(load_run_state(self.directory()).outcome, "delivered")
+
     def test_resume_keeps_season_snapshot_and_original_provenance(self):
         self.config["season_context"]["marker"] = "original"
         with patch.object(run, "generate_images_for_digest", side_effect=RuntimeError("renderer unavailable")):

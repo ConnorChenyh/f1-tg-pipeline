@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import subprocess
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,10 +8,30 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import scheduler
-from generator.digest_writer import generate_digest
+from generator.digest_writer import generate_digest, repair_digest
 
 
 class GuardReworkTests(unittest.TestCase):
+    def test_same_article_id_restores_exact_evidence_url_without_model(self):
+        original = "https://www.motorsport.com/f1/news/mclaren-fuel-system/10863082/?utm_source=RSS"
+        invented = "https://www.motorsport.com/f1/news/mclaren-costly-fuel-system/10863082"
+        client = SimpleNamespace(chat_json=MagicMock())
+        draft, _ = repair_digest(client, {"sources": [invented]}, [{"evidence_urls": [original]}],
+            None, "日报", [{"code": "unknown_source", "severity": "error"}])
+        self.assertEqual(draft["sources"], ["https://www.motorsport.com/f1/news/mclaren-fuel-system/10863082"])
+        client.chat_json.assert_not_called()
+
+    def test_different_article_or_domain_does_not_get_silently_replaced(self):
+        original = "https://www.motorsport.com/f1/news/original/10863082"
+        for unknown in ["https://www.motorsport.com/f1/news/other/10863083",
+                        "https://example.com/f1/news/other/10863082"]:
+            draft = {"sources": [unknown], "items": [{"headline": "标题", "content": "正文"}]}
+            with patch("generator.digest_writer.final_review_digest", return_value=(draft, [])) as review:
+                repaired, _ = repair_digest(None, draft, [{"evidence_urls": [original]}], None, "日报",
+                    [{"code": "unknown_source", "severity": "error"}])
+            self.assertEqual(repaired["sources"], [unknown])
+            review.assert_called_once()
+
     def test_final_review_new_bad_source_is_returned_for_rework(self):
         good = {"title": "日报", "items": [{"ordinal": "一", "headline": "升级", "content": "车队调整底板。"}],
                 "sources": ["https://example.com/original"]}

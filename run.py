@@ -726,6 +726,8 @@ def _main() -> int:
     })
 
     if not topics:
+        state.completed.remove(STAGE_TOPICS)
+        save_run_state(output_dir, state)
         logging.error("No fresh topics available after heat/history filtering")
         return 1
 
