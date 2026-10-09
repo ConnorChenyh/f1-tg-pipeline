@@ -191,8 +191,14 @@ raising. `run.py` then:
 - skips Telegram delivery, and
 - does **not** advance the season snapshot.
 
-This keeps a rejected draft available for human review rather than discarding the
-whole run. Blocking codes caused by a regex false positive are visible in
+Before returning blockers, the writer returns the draft to the editor with its
+evidence and exact quality issues for up to two rework passes. After rendering,
+`run.py` applies up to two additional repair/render passes for remaining blockers
+and truncated cards. Every revised draft is revalidated; quality gates are never
+bypassed. Exhausted rejection returns a nonzero exit code and remains resumable.
+The scheduler runs up to three attempts within one total deadline, resumes failed
+stages, and attempts a Telegram failure alert if recovery is exhausted. Delivery
+checkpoints prevent duplicate sends and prohibit rewriting partially sent payloads. Blocking codes caused by a regex false positive are visible in
 `meta.json`.
 
 Important prompt constraints:
@@ -259,11 +265,12 @@ again. State lives in two files:
   have to guess.
 
 A resumed run reuses the saved shortlist, topics and draft, so the paid DeepSeek
-calls are not repeated. It also freezes the original run time, keeping the
+calls for successful stages are not repeated; rejected drafts are edited again. It also freezes the original run time, keeping the
 time-dependent filters (history window, cooldowns, time decay) consistent with
 the first attempt. Runs older than `run_state.max_resume_age_hours` are refused
-so a stale window is never published, and a run that already reached `finished` or `delivered`
-is not resumable. Generated and rejected drafts do not enter SQLite's published
+so a stale window is never published. Delivered or successfully finished runs
+are not resumable; rejected drafts, including legacy `finished` rejection states,
+remain recoverable. Generated and rejected drafts do not enter SQLite's published
 history. They only enter JSON editorial history for a short cooldown (one hour by
 default). Compensation and manual delivery finalize published history idempotently.
 Old run-state files without an outcome remain readable. A saved `season_snapshot.json`

@@ -65,13 +65,48 @@ class DeliveryLifecycleTests(unittest.TestCase, RunHarness):
     def test_real_renderer_truncation_blocks_delivery_and_publication(self):
         self.scripts["digest"]["items"][0]["content"] = "证据支持的完整正文。" * 400
         with patch.object(run, "push_digest_to_telegram") as send:
-            self.assertEqual(self.invoke("--push-telegram"), 0)
+            self.assertEqual(self.invoke("--push-telegram"), 1)
             send.assert_not_called()
         directory = self.directory()
         meta = json.loads((directory / "drafts/digest/meta.json").read_text())
         self.assertIn("image_truncated", meta["guard_blocking_codes"])
         self.assertEqual(load_run_state(directory).outcome, "rejected")
         self.assertEqual(_published_state(self.root)[1], 0)
+
+    def test_truncated_card_is_reworked_and_delivered_in_same_run(self):
+        self.config["deepseek"]["final_review_enabled"] = True
+        repaired = json.loads(json.dumps(self.scripts["digest"]))
+        repaired["items"][0]["content"] = "法拉利在西班牙站带来修订版底板。"
+        with patch.object(run, "_load_image_measurements", side_effect=[{"truncated_count": 1}, {"truncated_count": 0}]), \
+             patch.object(run, "repair_digest", return_value=(repaired, ["缩短正文"])) as repair, \
+             patch.object(run, "push_digest_to_telegram", return_value={"image_count": 2}) as send:
+            self.assertEqual(self.invoke("--push-telegram"), 0)
+        repair.assert_called_once()
+        self.assertEqual(repair.call_args.args[-1][-1]["code"], "image_truncated")
+        send.assert_called_once()
+        self.assertEqual(load_run_state(self.directory()).outcome, "delivered")
+        self.assertEqual(_published_state(self.root)[1], 1)
+
+    def test_rejected_run_remains_resumable_and_reuses_evidence(self):
+        self.scripts["digest"]["sources"] = ["https://example.com/invented"]
+        self.assertEqual(self.invoke("--push-telegram"), 1)
+        directory = self.directory()
+        state = load_run_state(directory)
+        # Reproduce the old production state which incorrectly marked rejection finished.
+        state.completed.append("finished")
+        from analyzer.run_state import save_run_state
+        save_run_state(directory, state)
+        self.assertIsNotNone(find_resumable_run(self.root, datetime.now(timezone.utc)))
+        self.config["deepseek"]["final_review_enabled"] = True
+        repaired = json.loads(json.dumps(self.scripts["digest"]))
+        repaired["sources"] = ["https://www.motorsport.com/f1/news/example"]
+        calls = len(self.calls)
+        with patch.object(run, "repair_digest", return_value=(repaired, [])), \
+             patch.object(run, "push_digest_to_telegram", return_value={"image_count": 2}) as send:
+            self.assertEqual(self.invoke("--resume", "--push-telegram"), 0)
+        self.assertEqual(len(self.calls), calls)
+        send.assert_called_once()
+        self.assertEqual(load_run_state(directory).outcome, "delivered")
 
     def test_mock_push_validates_only(self):
         with patch.object(run, "push_digest_to_telegram", return_value={"dry_run": True}) as send:
@@ -109,7 +144,7 @@ class SchedulerDeadlineTests(unittest.TestCase):
         process.wait.side_effect = [subprocess.TimeoutExpired("pipeline", 5), 0]
         with patch.object(scheduler.subprocess, "Popen", return_value=process) as start, \
              patch.object(scheduler.os, "killpg") as kill:
-            self.assertEqual(scheduler.run_pipeline(Path("config.yaml"), 24, True, 5), 124)
+            self.assertEqual(scheduler._run_pipeline_once(Path("config.yaml"), 24, True, 5), 124)
         self.assertTrue(start.call_args.kwargs["start_new_session"])
         kill.assert_called_once_with(12345, signal.SIGTERM)
 

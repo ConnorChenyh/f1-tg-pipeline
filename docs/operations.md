@@ -249,10 +249,14 @@ social-only content.
 The log line is:
 
 ```text
-Quality guard rejected the draft; saved for human review and skipped delivery: too_few_items
+Quality rework exhausted; retaining rejected draft for recovery: too_few_items
 ```
 
-The run still succeeds and the draft is on disk. Inspect:
+质量拦截会先带着原文证据和具体错误返回编辑，最多返工两次；渲染后仍有错误或图片截断时，再返工并重新渲染，最多两次。原文链接必须原样引用，不允许模型改写文章路径。
+
+仍未通过的运行保留草稿、标记 `rejected` 并返回非零退出码，保持可恢复。调度器在同一个 `scheduler.timeout_sec` 总期限内最多执行三次，后两次使用 `--resume`：复用已成功的采集、证据和草稿，修复失败阶段，保留已确认的 Telegram 批次。超时会终止进程组；重试或期限耗尽时尝试发 Telegram 故障通知，通知本身失败会写入日志。质量关卡始终保留，不会发送未通过的稿件。
+
+检查保留的产物：
 
 ```bash
 python - <<'PY'
@@ -268,8 +272,7 @@ PY
 Nothing was delivered to Telegram and the season snapshot was not advanced, so the
 next Telegram-enabled run still carries the same context. Topics from a rejected run enter short-lived editorial history (one hour by
 default), not SQLite's published history. They can be reconsidered on the next daily
-run. Repair the underlying cause in the evidence, writer or guard and generate a new
-run. `--telegram-only` refuses a blocked draft; it is not a quality-gate bypass.
+run. 可用 `--resume --push-telegram` 继续返工并投递；已有投递检查点的稿件禁止改写，需要创建新运行。 `--telegram-only` refuses a blocked draft; it is not a quality-gate bypass.
 
 ### Item text is truncated on an image
 
@@ -310,8 +313,8 @@ at itself from `output/active_run.json`. Continue instead of starting over:
 .venv/bin/python run.py --resume
 ```
 
-The resumed run reuses the saved shortlist, topics and draft, so no new DeepSeek
-calls are made for work that already succeeded. Expected log lines:
+The resumed run reuses the saved shortlist, topics and draft, so successful work does not make new DeepSeek
+calls. A rejected draft makes new calls only for its rework. Expected log lines:
 
 ```text
 Resuming run 2026-09-11_113002 (completed stages: collect, topics, digest)
@@ -319,7 +322,9 @@ Resume: reusing the written draft from 2026-09-11_113002
 ```
 
 Runs older than `run_state.max_resume_age_hours` (default 6) are refused, and a
-run with outcome `generated`, `rejected`, or `delivered` has nothing to resume.
+run with outcome `generated` or `delivered` has nothing to resume.
+A `rejected` run is resumable and returns its saved draft for rework; legacy
+rejected states incorrectly marked `finished` are also recoverable.
 `delivery_pending` remains resumable. Original season context and draft provenance
 are retained; successful Telegram batches are not resent. `--resume` is ignored
 with `--mock`/`--dry-run`, which persist no state.

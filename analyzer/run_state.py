@@ -170,9 +170,14 @@ def find_resumable_run(
     if state is None:
         logger.info("Run %s has no usable state; nothing to resume", output_dir.name)
         return None
-    if state.has(STAGE_DELIVERED) or state.has(STAGE_FINISHED):
+    if state.has(STAGE_DELIVERED) or (state.has(STAGE_FINISHED) and state.outcome != "rejected"):
         logger.info("Run %s is complete (%s); nothing to resume", output_dir.name, state.outcome or "legacy")
         return None
+
+    # Older versions marked rejected drafts finished and exited successfully.
+    # They remain recoverable, but never erase an actual delivery checkpoint.
+    if state.outcome == "rejected" and state.has(STAGE_FINISHED):
+        state.completed.remove(STAGE_FINISHED)
 
     generated_at = parse_generated_at(state.generated_at)
     if generated_at is None:

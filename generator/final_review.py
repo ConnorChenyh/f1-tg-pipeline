@@ -90,6 +90,8 @@ Review rules:
 - Preserve acronyms exactly as written in evidence. If the source says “sistema STM”, keep STM; if another evidence text says “FTM blown exhaust system”, do not treat it as higher priority than article_content unless the article itself supports it
 - If a claim is unsupported, remove it or downgrade it to 报道称/讨论称/分析认为 according to evidence
 - Do not add new facts, jokes, hashtags, sources, metaphors, or dramatic phrasing
+- Copy source URLs exactly from evidence.url or evidence.canonical_url. Never rewrite an article slug, even if another publisher uses a similar headline.
+- This may be a rejected draft returned for rework: resolve every deterministic quality issue before returning. For image_truncated, shorten the affected headline/content while preserving supported facts. For unknown_source, replace the URL with the exact matching evidence URL, never invent a canonical URL.
 - review_notes in Chinese; include one note for each item whose summary correctness or terminology you changed; [] if no changes
 """
 

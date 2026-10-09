@@ -170,7 +170,7 @@ class GuardDegradationTests(unittest.TestCase):
                 )()
                 exit_code = run_module.main()
 
-            self.assertEqual(exit_code, 0, "a guard rejection must not fail the run")
+            self.assertEqual(exit_code, 1, "a guard rejection must trigger scheduled recovery")
             self.assertEqual(pushed, [], "a rejected draft must not be delivered")
 
             draft_dir = root / "output" / "run1" / "drafts" / "digest"

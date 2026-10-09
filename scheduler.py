@@ -61,7 +61,8 @@ def next_run_at(now: datetime, daily_at: dt_time) -> datetime:
     return candidate
 
 
-def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec: int = 1800) -> int:
+def _run_pipeline_once(config_path: Path, hours: int, push_telegram: bool,
+                       timeout_sec: float, *, resume: bool = False) -> int:
     cmd = [
         sys.executable,
         str(ROOT / "run.py"),
@@ -72,6 +73,8 @@ def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec
     ]
     if push_telegram:
         cmd.append("--push-telegram")
+    if resume:
+        cmd.append("--resume")
 
     logging.info("Starting scheduled pipeline: %s", " ".join(cmd))
     with subprocess.Popen(cmd, cwd=ROOT, env=os.environ.copy(), start_new_session=True) as process:
@@ -89,6 +92,32 @@ def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec
                 process.wait()
             return 124
     logging.info("Scheduled pipeline exited with code %s", code)
+    return code
+
+
+def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec: int = 1800) -> int:
+    deadline = time.monotonic() + max(1, timeout_sec)
+    code = 1
+    for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            code = 124
+            break
+        code = _run_pipeline_once(config_path, hours, push_telegram, remaining, resume=attempt > 0)
+        if code == 0:
+            return 0
+        logging.error("Scheduled pipeline attempt %s/3 failed: exit %s", attempt + 1, code)
+        if code == 124:
+            break
+    if push_telegram:
+        try:
+            from publisher.telegram_text import send_text_to_telegram
+            send_text_to_telegram(
+                "F1 日报自动恢复失败，尚未完成交付。生成、质量或发送阶段重试已耗尽，需要处理生产日志。",
+                load_config(config_path),
+            )
+        except Exception as exc:
+            logging.error("Could not send scheduled failure alert: %s", type(exc).__name__)
     return code
 
 

@@ -215,6 +215,27 @@ def _run_review_stage(
     return _keep_valid_draft(reviewed, fallback, stage), notes
 
 
+def repair_digest(
+    client: DeepSeekClient,
+    draft: dict[str, Any],
+    topics: list[dict[str, Any]],
+    run_context: RunContext,
+    digest_title: str,
+    quality_issues: list[dict[str, str]],
+) -> tuple[dict[str, Any], list[str]]:
+    """Return a rejected draft to the editor with evidence and exact failures."""
+    repaired, notes = _run_review_stage(
+        lambda: final_review_digest(
+            client, draft, topics, run_context, digest_title,
+            grounding=build_digest_grounding(topics), quality_issues=quality_issues,
+        ),
+        draft,
+        "quality rework",
+    )
+    repaired["title"] = digest_title
+    return repaired, [f"返工提示：{note}" for note in notes]
+
+
 def generate_digest(
     client: DeepSeekClient,
     topics: list[dict[str, Any]],
@@ -315,6 +336,19 @@ def generate_digest(
         min_item_chars=item_min_chars,
         max_item_chars=item_max_chars,
     )
+    for attempt in range(2):
+        if not blocking_issues(final_quality_issues) or not (fact_check_enabled or final_review_enabled):
+            break
+        logger.warning("Quality guard returning draft for rework (%s/2): %s",
+                       attempt + 1, issue_summary(blocking_issues(final_quality_issues)))
+        draft, repair_notes = repair_digest(
+            client, draft, topics, run_context, digest_title, issue_dicts(final_quality_issues),
+        )
+        fact_check_notes.extend(repair_notes)
+        final_quality_issues = validate_digest(
+            draft, topics, min_items=min_items, max_items=max_items,
+            min_item_chars=item_min_chars, max_item_chars=item_max_chars,
+        )
     blockers = blocking_issues(final_quality_issues)
     blocking_codes = [issue.code for issue in blockers]
     # A blocker that already existed before the review pass means the review did

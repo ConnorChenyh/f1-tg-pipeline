@@ -96,7 +96,7 @@ Docker 的 `scheduler.py` 负责每日生成和投递；当前没有独立的“
 | 图片完整 | `render_measurements.json`、`images/`、`preview.html` | 无截断，封面和每条新闻卡齐全；实际查看图片的中文、标题和日期 |
 | 投递完成 | `run_state.json`、`telegram_delivery.json`、待投递队列、日志 | 应发布的运行 outcome 为 delivered，确认批次记录完整；部分发送需继续排查 |
 
-`generated` 表示生成但未投递，`rejected` 表示质量拒绝，`delivery_pending`
+`generated` 表示生成但未投递，`rejected` 表示返工后仍被质量拒绝（非零退出码、可恢复），`delivery_pending`
 表示投递失败待恢复；未完成运行可能还没有 outcome。mock 也会生成这些文件，
 因此必须结合启动命令和日志判断。模型审阅通过不等于事实已核实；正文缺失时
 应记录证据不足，不把标题或另一模型的判断当作原文。
@@ -129,6 +129,8 @@ TELEGRAM_BOT_TOKEN=123:dry-run TELEGRAM_CHAT_ID=0 .venv/bin/python run.py --tele
 | 错误事实 / 表述误导 | 原文、`generator/` 写稿/核查/终审/质量关卡 | 用故障样例和正常样例验证；见 `test_quality_pipeline.py`、`test_reader_facing_style.py`；提示词改动用 `scripts/replay_digest.py` 重跑出问题的运行对比 |
 | 图片截断 / 标点排版 | `generator/images.py` 和测量报告 | 运行 `test_images.py`，查看真实渲染结果 |
 | 投递失败 / 部分发送 | `publisher/`、队列和检查点 | 保留已确认批次，按运维手册恢复；见 `test_telegram_retry.py`、`test_delivery_lifecycle.py` |
+
+调度器会在总期限内自动恢复失败阶段，最多三次；耗尽时尝试发送故障通知。拒稿可以通过 `--resume --push-telegram` 继续基于原证据返工。
 
 先保留问题运行与错误证据，再在本地做最小修改、跑相关回归及完整检查，
 同步对应文档。不要编辑质量标记来放行，不删除投递检查点强制重发；

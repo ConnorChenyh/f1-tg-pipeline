@@ -118,7 +118,7 @@ class R3GuardSeasonTests(unittest.TestCase):
                 ctx_cls.now.return_value = RealRunContext.now(24)
                 code = run_module.main()
 
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)
         self.assertEqual(sent, [], "guard-rejected digest must not send the season update")
         self.assertEqual(snapshots, [], "guard-rejected digest must not advance the snapshot")
 

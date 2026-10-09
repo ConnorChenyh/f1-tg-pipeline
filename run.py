@@ -61,7 +61,8 @@ from collectors.reddit import collect_reddit
 from collectors.rss import collect_rss
 from collectors.twitter import collect_twitter
 from generator.deepseek_client import DeepSeekClient, RunDeadlineExceeded
-from generator.digest_writer import generate_digest, save_digest
+from generator.digest_writer import generate_digest, repair_digest, save_digest
+from generator.quality_guard import blocking_issues, issue_dicts, validate_digest
 from generator.images import RENDER_MEASUREMENTS_FILENAME, generate_images_for_digest
 from generator.preview import generate_preview
 from publisher.telegram import TelegramConfigError, push_digest_to_telegram
@@ -808,12 +809,52 @@ def _main() -> int:
             guard_blocking_codes = sorted(set(guard_blocking_codes + ["image_truncated"]))
             meta.update(guard_blocked=True, guard_blocking_codes=guard_blocking_codes)
         save_json(draft_dir / "meta.json", meta)
+
+        # Rework the saved draft, including render failures, before publication.
+        # Never rewrite a payload after any delivery checkpoint has been made.
+        for attempt in range(2):
+            if not guard_blocked or test_mode or not (fact_check_enabled or final_review_enabled):
+                break
+            if (draft_dir / "telegram_delivery.json").exists():
+                raise ValueError("Cannot rework a draft with a delivery checkpoint; use a new run")
+            if client is None:
+                client = _client_for(config)
+            issues = issue_dicts(validate_digest(
+                draft, digest_topics, min_items=effective_min_items, max_items=digest_max_items,
+                max_item_chars=digest_item_max_chars,
+            ))
+            if "image_truncated" in guard_blocking_codes:
+                issues.append({"code": "image_truncated", "severity": "error", "location": "images",
+                               "message": "Rendered cards dropped text. Shorten affected headlines/content; "
+                                          + json.dumps(meta["image_measurements"], ensure_ascii=False)})
+            logging.warning("Returning rejected digest for rework/render (%s/2): %s",
+                            attempt + 1, ", ".join(guard_blocking_codes))
+            draft, notes = repair_digest(client, draft, digest_topics, run_context, digest_title, issues)
+            fact_check_notes.extend(notes)
+            guard_blocking_codes = [issue.code for issue in blocking_issues(validate_digest(
+                draft, digest_topics, min_items=effective_min_items, max_items=digest_max_items,
+                max_item_chars=digest_item_max_chars,
+            ))]
+            guard_blocked = bool(guard_blocking_codes)
+            save_digest(draft_dir, draft, fact_check_notes or None)
+            save_json(draft_dir / "meta.json", _base_meta())
+            image_paths = generate_images_for_digest(
+                draft, digest_topics, draft_dir, config, generated_at=run_context.generated_at,
+            )
+            meta = _base_meta()
+            meta["images"] = image_paths
+            meta["image_measurements"] = _load_image_measurements(draft_dir)
+            if meta["image_measurements"].get("truncated_count", 0):
+                guard_blocking_codes = sorted(set(guard_blocking_codes + ["image_truncated"]))
+                guard_blocked = True
+                meta.update(guard_blocked=True, guard_blocking_codes=guard_blocking_codes)
+            save_json(draft_dir / "meta.json", meta)
         logging.info("Generated digest at %s", draft_dir)
 
         pushed_ok = False
         if guard_blocked:
             logging.error(
-                "Quality guard rejected the draft; saved for human review and skipped delivery: %s",
+                "Quality rework exhausted; retaining rejected draft for recovery: %s",
                 ", ".join(guard_blocking_codes),
             )
         elif f"output/{output_dir.name}" in compensated_dirs:
@@ -868,7 +909,8 @@ def _main() -> int:
                 "Test mode (%s): published-topic memory and season snapshot left untouched",
                 "mock" if args.mock else ("dry-run" if args.dry_run else "telegram-dry-run"),
             )
-        state.mark(STAGE_DELIVERED if pushed_ok and persist_state else STAGE_FINISHED)
+        if not guard_blocked:
+            state.mark(STAGE_DELIVERED if pushed_ok and persist_state else STAGE_FINISHED)
         if not save_run_state(output_dir, state):
             raise OSError("Could not persist final run outcome")
     except Exception as exc:
@@ -879,7 +921,7 @@ def _main() -> int:
 
     preview_path = generate_preview(output_dir)
     logging.info("Preview: %s", preview_path)
-    return 0
+    return 1 if guard_blocked else 0
 
 
 def main() -> int:
