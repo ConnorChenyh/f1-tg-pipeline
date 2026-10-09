@@ -146,7 +146,10 @@ The project uses two memory mechanisms:
 source URL changes, for example repeated Verstappen future/transfer coverage,
 Goodwood Festival of Speed recaps, or Belgian GP preview posts. Existing history
 entries without a stored signature are still matched by recomputing the signature
-from their title, summary, and evidence URLs.
+from their title, summary, and evidence URLs. Because the matched text includes
+model summaries and URL slugs, rule keywords should be specific phrases such as
+`verstappen's future` rather than generic words like `future`, which also match
+unrelated slugs such as `prevent-repeat-future-races`.
 
 `analyzer/evidence_gate.py` filters low-evidence social-only topics when enough
 article-backed topics are available. `analyzer/story_db.py` records candidates

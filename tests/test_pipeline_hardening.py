@@ -69,6 +69,14 @@ class EvidenceRegressionTests(unittest.TestCase):
             with self.subTest(title=case["title"]):
                 self.assertEqual(topic_signature({"title_zh": case["title"]}, config), case["signature"])
 
+    def test_url_slug_words_do_not_trigger_verstappen_future(self):
+        config = yaml.safe_load((ROOT / "config.yaml").read_text())
+        software = {"title_zh": "FIA 公布调查结论并更新引擎软件", "summary": "维斯塔潘等车手在暖胎圈遭遇软件故障",
+                    "evidence_urls": ["https://www.espn.com/f1/story/_/id/1/f1-cars-get-software-update-bug-prevent-repeat-future-races"]}
+        self.assertEqual(topic_signature(software, config), "")
+        future = {"title_zh": "红牛车手动向", "evidence_urls": ["https://example.com/f1/max-verstappen-future-red-bull-2027"]}
+        self.assertEqual(topic_signature(future, config), "verstappen_future")
+
     def test_sqlite_duplicates_can_backfill_but_cooled_topics_cannot(self):
         config = yaml.safe_load((ROOT / "config.yaml").read_text())
         topic = {"id": "one", "title_zh": "法拉利底板升级", "evidence_urls": ["https://example.com/a"],

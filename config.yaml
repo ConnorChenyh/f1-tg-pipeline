@@ -28,7 +28,8 @@ topic_cooldowns:
       cooldown_days: 7
       keyword_groups:
         - ["verstappen", "维斯塔潘", "max"]
-        - ["future", "exit clause", "transfer", "stay loyal", "contract", "未来", "去向", "转会", "留队", "合同", "解约条款"]
+        # Bare "future"/"未来" also match unrelated stories ("future races" in URL slugs).
+        - ["verstappen's future", "verstappen’s future", "verstappen-future", "his future", "future at red bull", "future with red bull", "red bull future", "exit clause", "transfer", "stay loyal", "contract", "去向", "前途", "转会", "留队", "合同", "解约条款"]
     - key: goodwood_festival
       cooldown_days: 7
       keyword_groups:
