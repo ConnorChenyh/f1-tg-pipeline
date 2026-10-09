@@ -28,6 +28,39 @@ from run import backfill_recent_topics
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 9, 23, 4, tzinfo=timezone.utc)
+# Production config ships without theme rules; the cooldown mechanism is tested
+# against the former production rules instead.
+COOLDOWN_RULES = {
+    "enabled": True,
+    "default_cooldown_days": 7,
+    "rules": [{
+        "key": "verstappen_future",
+        "cooldown_days": 7,
+        "keyword_groups": [
+            ["verstappen", "维斯塔潘", "max"],
+            ["verstappen's future", "verstappen’s future", "verstappen-future", "his future",
+             "future at red bull", "future with red bull", "red bull future", "exit clause", "transfer",
+             "stay loyal", "contract", "去向", "前途", "转会", "留队", "合同", "解约条款"],
+        ],
+    }, {
+        "key": "goodwood_festival",
+        "cooldown_days": 7,
+        "keyword_groups": [["goodwood", "festival of speed", "fos", "古德伍德", "速度节"]],
+    }, {
+        "key": "belgian_gp_preview",
+        "cooldown_days": 4,
+        "keyword_groups": [
+            ["belgian grand prix", "spa", "spa-francorchamps", "比利时大奖赛", "斯帕"],
+            ["preview", "schedule", "poster", "race week", "how to watch", "前瞻", "赛程", "海报", "预热"],
+        ],
+    }],
+}
+
+
+def _config_with_cooldowns() -> dict:
+    config = yaml.safe_load((ROOT / "config.yaml").read_text())
+    config["topic_cooldowns"] = COOLDOWN_RULES
+    return config
 
 
 def post(url, source="rss", title="Ferrari confirms revised floor for next race"):
@@ -63,14 +96,14 @@ class EvidenceRegressionTests(unittest.TestCase):
         self.assertEqual(_cross_source_count(posts[0], posts), 1)
 
     def test_editorial_cooldown_boundaries(self):
-        config = yaml.safe_load((ROOT / "config.yaml").read_text())
+        config = _config_with_cooldowns()
         cases = json.loads((ROOT / "tests/fixtures/cooldown_cases.json").read_text())
         for case in cases:
             with self.subTest(title=case["title"]):
                 self.assertEqual(topic_signature({"title_zh": case["title"]}, config), case["signature"])
 
     def test_url_slug_words_do_not_trigger_verstappen_future(self):
-        config = yaml.safe_load((ROOT / "config.yaml").read_text())
+        config = _config_with_cooldowns()
         software = {"title_zh": "FIA 公布调查结论并更新引擎软件", "summary": "维斯塔潘等车手在暖胎圈遭遇软件故障",
                     "evidence_urls": ["https://www.espn.com/f1/story/_/id/1/f1-cars-get-software-update-bug-prevent-repeat-future-races"]}
         self.assertEqual(topic_signature(software, config), "")
@@ -78,7 +111,7 @@ class EvidenceRegressionTests(unittest.TestCase):
         self.assertEqual(topic_signature(future, config), "verstappen_future")
 
     def test_sqlite_duplicates_can_backfill_but_cooled_topics_cannot(self):
-        config = yaml.safe_load((ROOT / "config.yaml").read_text())
+        config = _config_with_cooldowns()
         topic = {"id": "one", "title_zh": "法拉利底板升级", "evidence_urls": ["https://example.com/a"],
                  "evidence_posts": [{"fetch_status": "ok", "article_content": "Verified article"}]}
         with tempfile.TemporaryDirectory() as tmp:

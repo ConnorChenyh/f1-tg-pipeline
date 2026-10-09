@@ -215,8 +215,8 @@ Check `drafts/digest/meta.json`:
 
 - `social_only_without_article_content` means the evidence gate filtered thin social-only topics.
 - `topic_signature:<key>` means `topic_cooldowns` filtered a repeated broad theme
-  even if the URL changed, such as `verstappen_future`, `goodwood_festival`, or
-  `belgian_gp_preview`.
+  even if the URL changed. No theme rules are configured at present (see the
+  comment in `config.yaml`), so this reason only appears after a rule is added.
 - `shared_url:` or `text_similarity:` means JSON topic history filtered a recent duplicate.
 - `story_db:` means SQLite story memory filtered a recent duplicate.
 - `backfilled_recent_duplicate_for_min_items` means a very recent URL/text

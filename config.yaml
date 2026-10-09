@@ -23,22 +23,16 @@ topic_history:
 topic_cooldowns:
   enabled: true
   default_cooldown_days: 7
-  rules:
-    - key: verstappen_future
-      cooldown_days: 7
-      keyword_groups:
-        - ["verstappen", "维斯塔潘", "max"]
-        # Bare "future"/"未来" also match unrelated stories ("future races" in URL slugs).
-        - ["verstappen's future", "verstappen’s future", "verstappen-future", "his future", "future at red bull", "future with red bull", "red bull future", "exit clause", "transfer", "stay loyal", "contract", "去向", "前途", "转会", "留队", "合同", "解约条款"]
-    - key: goodwood_festival
-      cooldown_days: 7
-      keyword_groups:
-        - ["goodwood", "festival of speed", "fos", "古德伍德", "速度节"]
-    - key: belgian_gp_preview
-      cooldown_days: 4
-      keyword_groups:
-        - ["belgian grand prix", "spa", "spa-francorchamps", "比利时大奖赛", "斯帕"]
-        - ["preview", "schedule", "poster", "race week", "how to watch", "前瞻", "赛程", "海报", "预热"]
+  # Theme rules cool a recurring story even when its URL changes. None are active:
+  # the summer rules (verstappen_future, goodwood_festival, belgian_gp_preview)
+  # only produced false positives later in the season. Add a rule here when one
+  # theme keeps returning under new URLs that URL/text/story-DB dedupe misses:
+  #   - key: some_theme
+  #     cooldown_days: 7
+  #     keyword_groups:          # every group must match at least one keyword
+  #       - ["driver name", "中文名"]
+  #       - ["contract", "合同"]
+  rules: []
 
 output_retention:
   enabled: true
