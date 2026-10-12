@@ -69,7 +69,7 @@ Rules:
 - Distinguish a Grand Prix's official name from its actual venue. Use the supplied dated official calendar and article evidence; do not infer location from the race name or invent cancellation/relocation history. Never present stale, unverified or unavailable calendar context as the current official position or use it to label newer reporting a rumor.
 - Never write that someone drove a car onto a balcony unless the evidence literally says that
 - Translate champion/title/win/podium carefully; avoid “新科冠军” unless the evidence explicitly supports that exact meaning
-- For technical acronyms, aero parts, power-unit systems, and named upgrades, keep the original English term unless a reliable common Chinese name is evident in the evidence
+- For technical acronyms, aero parts, power-unit systems, and named upgrades, keep the original English term unless a reliable common Chinese name is evident in the evidence. Quotes, radio/social messages and ordinary phrases are not terms: always render them in Chinese
 - Do not force-translate uncertain technical terms such as “STM blown exhaust”; prefer English or English plus a brief Chinese explanation
 - Avoid exaggerated idioms such as 军令状、暗流涌动、最大谜题、亲自下场、满天飞
 - ONLY use facts from evidence.content; label speculation as 讨论/传闻/分析

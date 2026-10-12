@@ -123,7 +123,7 @@ Rules:
 - If an item is too long, remove repetition and secondary detail first; keep it within the configured one-image limit
 - For social/video-only evidence, write “视频显示/帖文称/讨论称” instead of unanchored fact wording
 - Avoid ambiguous translations such as 新科冠军 unless evidence clearly supports the exact meaning
-- Check technical terms against evidence wording; if a Chinese translation is not clearly standard, keep the English term or write English plus a short Chinese explanation
+- Check technical terms against evidence wording; if a Chinese translation is not clearly standard, keep the English term or write English plus a short Chinese explanation. This applies to technical names only: translate any English quote, radio/social message or ordinary phrase left in the draft into Chinese, and never add an English quote yourself
 - In particular, do not invent Chinese names for acronyms such as STM or named aero/PU systems
 - Avoid overdramatic idioms such as 军令状、暗流涌动、最大谜题、亲自下场、满天飞
 - Remove unsupported claims; use 讨论/传闻/分析 for speculation

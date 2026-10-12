@@ -91,6 +91,47 @@ class ReaderStylePipelineTests(unittest.TestCase):
             self.assertNotIn("999", user)
             self.assertNotIn("1234", user)
 
+    def test_every_stage_requires_chinese_quotes_while_keeping_technical_terms(self):
+        from copy import deepcopy
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from analyzer.context import RunContext
+        from generator.digest_writer import generate_digest
+
+        source = "https://example.com/radio"
+        evidence = '"My call, I lost us points," he said after the floor upgrade failed.'
+        content = "他在赛后无线电中说：“这是我的决定，我让车队丢了分。”新 floor 升级没有奏效。"
+        payload_base = {"items": [{"ordinal": "一", "headline": "车手为策略失误道歉",
+                                   "content": content}], "sources": [source]}
+        prompts = []
+
+        def chat_json(model, system, user, validator=None, stage="unknown"):
+            prompts.append((stage, system, user))
+            payload = deepcopy(payload_base)
+            payload["fact_check_notes" if stage == "fact_check" else "review_notes"] = []
+            if stage == "digest":
+                payload.pop("review_notes")
+            return validator(payload) if validator else payload
+
+        client = SimpleNamespace(model_writer="test", chat_json=chat_json)
+        topics = [{"id": "radio", "title_zh": "车手道歉", "evidence_urls": [source],
+                   "evidence_posts": [{"url": source, "source": "rss", "article_content": evidence,
+                                       "fetch_status": "ok"}]}]
+        draft, _notes, codes = generate_digest(client, topics,
+            RunContext(datetime(2026, 10, 12, tzinfo=timezone.utc), 24, 2026), "围场新闻",
+            min_items=1, max_items=1, item_max_chars=500)
+        self.assertEqual(codes, [])
+        self.assertEqual(draft["items"][0]["content"], content)
+        self.assertEqual({stage for stage, _, _ in prompts}, {"digest", "fact_check", "final_review"})
+        for stage, system, user in prompts:
+            with self.subTest(stage=stage):
+                self.assertIn("不把英文原句放进引号", system)
+                self.assertIn("不要机械翻译未知专名和技术词", system)
+        fact_check_user = next(user for stage, _, user in prompts if stage == "fact_check")
+        self.assertIn("never add an English quote yourself", fact_check_user)
+        digest_user = next(user for stage, _, user in prompts if stage == "digest")
+        self.assertIn("Quotes, radio/social messages and ordinary phrases are not terms", digest_user)
+
 
 if __name__ == "__main__":
     unittest.main()
