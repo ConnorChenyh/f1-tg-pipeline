@@ -19,6 +19,9 @@ topic_history:
   backfill_max_age_hours: 6
   unpublished_cooldown_hours: 1
   path: output/topic_history.json
+  # Delivered topics from this many days are shown to topic extraction so a
+  # follow-up is only chosen for a substantive new development. 0 disables it.
+  follow_up_context_days: 3
 
 topic_cooldowns:
   enabled: true
@@ -67,6 +70,9 @@ evidence_gate:
   enabled: true
   allow_social_only_heat: 88
   min_article_backed_topics: 2
+  # Fetched bodies shorter than this (video pages, templated pages) do not
+  # count as article evidence.
+  min_article_chars: 800
 
 source_tiers:
   official:

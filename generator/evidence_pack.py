@@ -94,6 +94,8 @@ def build_topic_grounding(topic: dict[str, Any], max_chars: int = 8000) -> dict[
         "heat_score": topic.get("heat_score"),
         "publish_recommendation": topic.get("publish_recommendation"),
         "skip_reason": topic.get("skip_reason"),
+        "follow_up_of": topic.get("follow_up_of"),
+        "new_development": topic.get("new_development"),
         "evidence": evidence_items,
         "writing_constraints": [
             "Treat model_summary as secondary context; evidence content is the source of truth.",

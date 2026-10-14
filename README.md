@@ -170,9 +170,11 @@ starts, then it will continue with the daily schedule.
   `output/season_context_state.json`. The first successful run establishes a
   silent baseline; later race-phase, completed-round, or standings changes are
   summarized to Telegram after the daily digest is delivered.
-- `topic_cooldowns` in `config.yaml` suppresses repeated themes even when new
-  URLs appear, such as repeated Verstappen future/transfer, Goodwood Festival of
-  Speed, or Belgian GP preview stories.
+- Articles already delivered in the last week are removed before topic
+  extraction, and recently delivered topics are shown to the topic model so a
+  follow-up is only chosen for a substantive new development.
+- `topic_cooldowns` in `config.yaml` can suppress a repeated theme even when new
+  URLs appear; no theme rules are configured at present.
 - If filtering leaves too few topics, the pipeline can add fallback topics from
   high-quality article-backed shortlist items, while still applying evidence and
   cooldown filters.

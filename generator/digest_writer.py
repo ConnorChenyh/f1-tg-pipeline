@@ -75,6 +75,7 @@ Rules:
 - ONLY use facts from evidence.content; label speculation as 讨论/传闻/分析
 - sources should collect unique evidence URLs from all topics
 - Do not repeat the same story twice
+- When a topic has follow_up_of, readers already saw that story in an earlier digest: lead with new_development and the new evidence-backed facts, and give the earlier events at most one short background sentence
 """
 
 

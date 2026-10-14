@@ -218,6 +218,10 @@ Check `drafts/digest/meta.json`:
   even if the URL changed. No theme rules are configured at present (see the
   comment in `config.yaml`), so this reason only appears after a rule is added.
 - `shared_url:` or `text_similarity:` means JSON topic history filtered a recent duplicate.
+  Already-delivered URLs are normally removed before extraction (see
+  `removed_published_urls` in `topics_status.json`), so `shared_url:` should be rare.
+- Follow-ups of recently delivered stories are skipped by the topic model unless
+  there is a substantive new development (`follow_up_context_days`).
 - `story_db:` means SQLite story memory filtered a recent duplicate.
 - `backfilled_recent_duplicate_for_min_items` means a very recent URL/text
   duplicate was reused to satisfy `digest.min_items`; topic-signature duplicates
@@ -228,7 +232,7 @@ If the output is still too small, inspect `shortlisted_posts.json` and consider:
 - increasing `digest.topic_candidate_extra` (spare extraction candidates; each
   extra topic adds a few article fetches to the run)
 - increasing RSS sources
-- lowering `evidence_gate.min_article_backed_topics`
+- lowering `evidence_gate.min_article_backed_topics` or `evidence_gate.min_article_chars`
 - increasing `shortlist.max_social_only_posts`
 - shortening `topic_history.dedupe_days`
 - adjusting or removing a specific `topic_cooldowns.rules` entry if a theme

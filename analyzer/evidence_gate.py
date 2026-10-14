@@ -16,9 +16,15 @@ def evidence_gate_enabled(config: dict[str, Any]) -> bool:
     return bool(_gate_config(config).get("enabled", True))
 
 
-def _has_article_content(topic: dict[str, Any]) -> bool:
+def _has_article_content(topic: dict[str, Any], min_chars: int = 0) -> bool:
+    """Whether any evidence post carries a fetched article body.
+
+    Video pages and other templated pages fetch "ok" but yield only a few
+    hundred characters of navigation text; below min_chars they do not count.
+    """
     return any(
-        (post.get("article_content") or "").strip() and post.get("fetch_status") == "ok"
+        post.get("fetch_status") == "ok"
+        and len((post.get("article_content") or "").strip()) >= max(min_chars, 1)
         for post in topic.get("evidence_posts", []) or []
         if isinstance(post, dict)
     )
@@ -47,14 +53,15 @@ def filter_topics_by_evidence_quality(
     cfg = _gate_config(config)
     allow_social_only_heat = int(cfg.get("allow_social_only_heat", 88))
     min_article_backed_topics = int(cfg.get("min_article_backed_topics", 2))
+    min_article_chars = int(cfg.get("min_article_chars", 0))
 
     kept: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    article_backed_count = sum(1 for topic in topics if _has_article_content(topic))
+    article_backed_count = sum(1 for topic in topics if _has_article_content(topic, min_article_chars))
 
     for topic in topics:
         heat = int(topic.get("heat_score", 0) or 0)
-        has_article = _has_article_content(topic)
+        has_article = _has_article_content(topic, min_article_chars)
         social_only = _social_only(topic)
 
         if social_only and not has_article and heat < allow_social_only_heat and article_backed_count >= min_article_backed_topics:

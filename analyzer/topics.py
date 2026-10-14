@@ -20,6 +20,9 @@ Run context:
 Posts JSON (includes created_at for each post):
 {posts_json}
 
+Topics already published in the last few days (JSON, oldest first):
+{recent_topics_json}
+
 Return JSON with this exact shape:
 {{
   "topics": [
@@ -30,7 +33,9 @@ Return JSON with this exact shape:
       "heat_score": 0,
       "evidence_urls": ["url1", "url2"],
       "publish_recommendation": "publish",
-      "skip_reason": null
+      "skip_reason": null,
+      "follow_up_of": null,
+      "new_development": null
     }}
   ]
 }}
@@ -41,6 +46,9 @@ Rules:
 - publish_recommendation must be "publish" or "skip"
 - skip rumors, pure flame wars, or posts without verifiable facts
 - evidence_urls must come from the input posts
+- A topic about the same event as an already-published topic is a follow-up. Recommend publishing it only if the posts contain a substantive new development (a decision, penalty, result, official statement, new quote from a key person, or new data); otherwise mark it skip with skip_reason "no new development". Commentary that repeats the published story is not new
+- For a follow-up set follow_up_of to the published title_zh, set new_development to one Chinese sentence naming the new facts, and make title_zh and summary lead with that development rather than the recap
+- For a topic unrelated to any published topic, leave follow_up_of and new_development null
 """
 
 
@@ -137,6 +145,7 @@ def extract_topics(
     run_context: RunContext,
     min_topics: int = 3,
     max_topics: int = 6,
+    recent_topics: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if not posts:
         return []
@@ -145,6 +154,7 @@ def extract_topics(
     user_prompt = TOPICS_USER_TEMPLATE.format(
         run_context=run_context.to_prompt_block(),
         posts_json=json.dumps(payload, ensure_ascii=False),
+        recent_topics_json=json.dumps(recent_topics or [], ensure_ascii=False),
         min_topics=min_topics,
         max_topics=max_topics,
     )

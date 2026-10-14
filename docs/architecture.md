@@ -25,7 +25,11 @@ normalize + score
 deterministic shortlist
   source tiers, article bonus, cross-source bonus, social caps, time decay
     ↓
+published-URL filter
+  drop articles delivered within topic_history.dedupe_days
+    ↓
 DeepSeek topic clustering
+  with recently delivered topics as follow-up context
     ↓
 evidence enrichment
   collected posts + fetched article bodies
@@ -151,8 +155,23 @@ model summaries and URL slugs, rule keywords should be specific phrases such as
 `verstappen's future` rather than generic words like `future`, which also match
 unrelated slugs such as `prevent-repeat-future-races`.
 
+Before topic clustering, `run.py` removes shortlisted posts (and related posts)
+whose URL was delivered within `topic_history.dedupe_days`. Feeds such as ESPN
+re-push old articles with fresh timestamps; without this filter the model can
+cluster one into a new topic, and the `shared_url` history check then drops the
+whole topic. The removed URLs are listed in `topics_status.json`
+(`removed_published_urls`).
+
+Topic extraction also receives the topics delivered in the last
+`topic_history.follow_up_context_days` days (default 3). A topic about an
+already-published event is chosen only for a substantive new development; it
+carries `follow_up_of` and `new_development`, and the writer leads with the new
+development and keeps earlier events to one background sentence.
+
 `analyzer/evidence_gate.py` filters low-evidence social-only topics when enough
-article-backed topics are available. `analyzer/story_db.py` records candidates
+article-backed topics are available. A fetched body shorter than
+`evidence_gate.min_article_chars` (video or templated pages) does not count as
+article evidence. `analyzer/story_db.py` records candidates
 and published topics, and can skip recently published fingerprints. The older
 `analyzer/topic_history.py` provides topic-signature, URL, and text-similarity
 filtering.

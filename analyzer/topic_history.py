@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from collectors.base import PostItem
 from generator.evidence_pack import normalize_source_url
 from analyzer.file_state import write_json_atomic
 from analyzer.topic_signature import topic_signature, topic_signature_cooldown_days
@@ -223,3 +224,88 @@ def append_topic_history(
 
     write_json_atomic(path, entries)
     logger.info("Topic history updated: %s (%d entries)", path, len(entries))
+
+
+def _delivered_entries(
+    root: Path,
+    config: dict[str, Any],
+    now: datetime,
+    days: float,
+) -> list[dict[str, Any]]:
+    if not history_enabled(config):
+        return []
+    cutoff = now - timedelta(days=days)
+    entries = []
+    for entry in _load_history(history_path(root, config)):
+        if entry.get("outcome", "delivered") != "delivered":
+            continue
+        published_at = _parse_datetime(str(entry.get("published_at") or entry.get("recorded_at") or ""))
+        if published_at is not None and cutoff <= published_at <= now:
+            entries.append(entry)
+    return entries
+
+
+def published_urls(root: Path, config: dict[str, Any], now: datetime) -> set[str]:
+    """Normalized evidence URLs of topics delivered within the dedupe window."""
+    urls: set[str] = set()
+    for entry in _delivered_entries(root, config, now, history_days(config)):
+        urls.update(str(url) for url in entry.get("evidence_urls", []) or [] if url)
+    return urls
+
+
+def recent_published_topics(
+    root: Path,
+    config: dict[str, Any],
+    now: datetime,
+) -> list[dict[str, Any]]:
+    """Delivered topics shown to topic extraction so follow-ups need news."""
+    days = float(_history_config(config).get("follow_up_context_days", 3))
+    if days <= 0:
+        return []
+    entries = _delivered_entries(root, config, now, days)
+    entries.sort(key=lambda entry: str(entry.get("published_at") or entry.get("recorded_at") or ""))
+    return [
+        {
+            "published_at": entry.get("published_at") or entry.get("recorded_at"),
+            "title_zh": entry.get("title_zh"),
+            "summary": entry.get("summary"),
+        }
+        for entry in entries
+    ]
+
+
+def drop_published_posts(posts: list[Any], urls: set[str]) -> tuple[list[Any], list[str]]:
+    """Remove already-published articles before topic extraction.
+
+    Feeds re-publish old articles with fresh timestamps; if one reaches the
+    model it gets clustered into an otherwise new topic, and the shared_url
+    history check then drops the whole topic. Related posts are filtered too;
+    when a cluster's lead post is old, its first unpublished member leads.
+    """
+    if not urls:
+        return list(posts), []
+    kept: list[Any] = []
+    removed: list[str] = []
+    for post in posts:
+        related = list(post.extra.get("related_posts", []) or [])
+        fresh_related = []
+        for item in related:
+            if normalize_source_url(str(item.get("url") or "")) in urls:
+                removed.append(str(item.get("url")))
+            else:
+                fresh_related.append(item)
+        if normalize_source_url(post.url) in urls:
+            removed.append(post.url)
+            if not fresh_related:
+                continue
+            lead = PostItem.from_dict(fresh_related[0])
+            lead.extra = {**lead.extra, "related_posts": fresh_related[1:]}
+            kept.append(lead)
+            continue
+        if len(fresh_related) != len(related):
+            post = PostItem.from_dict(post.to_dict())
+            post.extra["related_posts"] = fresh_related
+        kept.append(post)
+    if removed:
+        logger.info("Removed %d already-published URLs before topic extraction", len(removed))
+    return kept, removed

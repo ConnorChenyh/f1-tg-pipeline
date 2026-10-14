@@ -55,7 +55,13 @@ from analyzer.story_db import (
     record_candidates,
     record_published_topics,
 )
-from analyzer.topic_history import append_topic_history, filter_recent_topics
+from analyzer.topic_history import (
+    append_topic_history,
+    drop_published_posts,
+    filter_recent_topics,
+    published_urls,
+    recent_published_topics,
+)
 from analyzer.topics import extract_topics
 from collectors.reddit import collect_reddit
 from collectors.rss import collect_rss
@@ -633,9 +639,20 @@ def _main() -> int:
         return 0
 
     skipped_recent_topics: list[dict] = []
+    removed_published_urls: list[str] = []
     client = None
     draft_dir = output_dir / "drafts" / "digest"
     reused_topics = state.has(STAGE_TOPICS) and (output_dir / "topics.json").exists()
+    if not reused_topics:
+        # Already-published articles never reach topic extraction, so an old
+        # URL re-pushed by a feed cannot drag a new topic into a shared_url skip.
+        shortlisted, removed_published_urls = drop_published_posts(
+            shortlisted, published_urls(ROOT, config, run_context.generated_at),
+        )
+        if not shortlisted:
+            logging.error("Every shortlisted post was already published in the last %s days",
+                          config.get("topic_history", {}).get("dedupe_days", 7))
+            return 1
     if reused_topics:
         logging.info("Resume: reusing extracted topics from %s", output_dir.name)
         topics = json.loads((output_dir / "topics.json").read_text(encoding="utf-8"))
@@ -644,6 +661,7 @@ def _main() -> int:
             try:
                 recorded = json.loads(status_path.read_text(encoding="utf-8"))
                 skipped_recent_topics = list(recorded.get("skipped_recent_topics") or [])
+                removed_published_urls = list(recorded.get("removed_published_urls") or [])
             except (OSError, json.JSONDecodeError, AttributeError) as exc:
                 logging.warning("Ignoring unreadable %s: %s", status_path, exc)
     elif args.mock:
@@ -660,6 +678,7 @@ def _main() -> int:
                 run_context,
                 min_topics=digest_min_items,
                 max_topics=digest_max_items + topic_candidate_extra,
+                recent_topics=recent_published_topics(ROOT, config, run_context.generated_at),
             )
         except RunDeadlineExceeded as exc:
             _persist_model_usage(draft_dir, client)
@@ -707,6 +726,7 @@ def _main() -> int:
         output_dir / "topics_status.json",
         {
             "skipped_recent_topics": skipped_recent_topics,
+            "removed_published_urls": removed_published_urls,
             "extracted_count": len(topics),
         },
     )
