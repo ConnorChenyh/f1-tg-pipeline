@@ -189,7 +189,12 @@ story DB, and topic history/cooldown checks before they can be written.
 
 ## Writing And Review
 
-`generator/digest_writer.py` asks DeepSeek to write a single digest with one item
+The model client starts with DeepSeek. If a call exhausts its retries or response
+repairs, the configured OpenAI-compatible fallback handles that call and the rest
+of the run. Both providers share validators, usage accounting and the original
+run deadline; no fallback is attempted after the budget expires.
+
+`generator/digest_writer.py` asks the model client to write a single digest with one item
 per topic. Then:
 
 - `generator/fact_check.py` reviews the draft against the evidence packet.

@@ -203,9 +203,10 @@ def _is_retryable(exc: Exception) -> bool:
 class DeepSeekClient:
     def __init__(self, config: dict[str, Any]):
         deepseek_cfg = config.get("deepseek", {})
-        api_key = os.getenv("DEEPSEEK_API_KEY")
+        api_key_env = deepseek_cfg.get("api_key_env", "DEEPSEEK_API_KEY")
+        api_key = os.getenv(api_key_env)
         if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY is not set")
+            raise ValueError(f"{api_key_env} is not set")
 
         # max_retries=0 is deliberate: the SDK would otherwise retry twice
         # underneath this client's own retry loop, turning one logical call into
@@ -234,6 +235,20 @@ class DeepSeekClient:
         self.last_used_attempts = 0
         max_total = float(deepseek_cfg.get("max_total_seconds", 900) or 0)
         self._deadline = time.monotonic() + max_total if max_total > 0 else None
+        self._fallback: DeepSeekClient | None = None
+        self._fallback_active = False
+        fallback_cfg = deepseek_cfg.get("fallback", {})
+        if fallback_cfg.get("enabled", False):
+            fallback_model = fallback_cfg["model"]
+            self._fallback = DeepSeekClient({"deepseek": {
+                **{key: value for key, value in deepseek_cfg.items() if key != "fallback"},
+                **fallback_cfg,
+                "api_key_env": fallback_cfg.get("api_key_env", "FALLBACK_LLM_API_KEY"),
+                "model_topics": fallback_model,
+                "model_writer": fallback_model,
+            }})
+            self._fallback.usage = self.usage
+            self._fallback._deadline = self._deadline
 
     def deadline_remaining(self) -> float | None:
         """Seconds left in the run budget, or None when unlimited."""
@@ -345,6 +360,35 @@ class DeepSeekClient:
         validator: Callable[[Any], Any] | None = None,
         stage: str = "unknown",
     ) -> Any:
+        self.usage.begin_call(stage)
+        if not self._fallback_active:
+            try:
+                return self._chat_json(model, system_prompt, user_prompt, validator, stage)
+            except RunDeadlineExceeded:
+                raise
+            except RuntimeError:
+                if self._fallback is None:
+                    raise
+                self._check_deadline()
+                self._fallback_active = True
+                logger.warning("Primary model failed; switching this run to fallback model %s (stage=%s)",
+                               self._fallback.model_writer, stage)
+        fallback = self._fallback
+        assert fallback is not None
+        fallback._deadline = self._deadline
+        try:
+            return fallback._chat_json(fallback.model_writer, system_prompt, user_prompt, validator, stage)
+        finally:
+            self.last_used_attempts = fallback.last_used_attempts
+
+    def _chat_json(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        validator: Callable[[Any], Any] | None = None,
+        stage: str = "unknown",
+    ) -> Any:
         """Call the model and return parsed JSON.
 
         ``validator`` receives the parsed payload and may raise
@@ -358,7 +402,6 @@ class DeepSeekClient:
         repair_attempt = 0
         used_attempts = 0
 
-        self.usage.begin_call(stage)
         for attempt in range(attempts):
             used_attempts = attempt + 1
             attempt_started = time.monotonic()

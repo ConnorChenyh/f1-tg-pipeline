@@ -364,6 +364,15 @@ The stage map distinguishes `topics`, `digest`, `fact_check`, and `final_review`
 
 ### Retries and timeouts
 
+`deepseek.fallback` configures the secondary OpenAI-compatible provider. The
+default is `https://api.gemai.cc/v1` with `gpt-5.6-sol`; store its credential only
+in `.env` as `FALLBACK_LLM_API_KEY`. When enabled, the key is required at startup.
+After primary request retries or response validation repairs are exhausted,
+the client switches to the fallback for the rest of that run. Both providers
+share the original cumulative model deadline, usage totals, and validators;
+fallback cannot bypass quality checks or extend an exhausted budget. Each new
+run starts with DeepSeek again. Set `deepseek.fallback.enabled: false` to disable.
+
 `analyzer/net.py` retries standings and article fetches with jittered backoff.
 The OpenAI SDK's own retry loop is disabled so that `max_retries` in
 `config.yaml` is the true attempt budget; the SDK default of 2 would otherwise

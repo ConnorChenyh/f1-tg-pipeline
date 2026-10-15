@@ -42,11 +42,13 @@ pip install -r requirements.lock
 cp .env.example .env
 ```
 
-Set `DEEPSEEK_API_KEY` for real generation. Telegram values are required for
+Set `DEEPSEEK_API_KEY` and `FALLBACK_LLM_API_KEY` for real generation with the
+default fallback enabled. Telegram values are required for
 sending and existing-payload dry-run validation; offline unit tests need neither:
 
 ```
 DEEPSEEK_API_KEY=sk-...
+FALLBACK_LLM_API_KEY=sk-...
 TELEGRAM_BOT_TOKEN=123456:...
 TELEGRAM_CHAT_ID=123456789
 ```
@@ -121,7 +123,7 @@ from the run's `meta.json` so it has a single source of truth.
 
 ## Scheduled Docker Deployment
 
-Copy `.env.example` to `.env`, fill in `DEEPSEEK_API_KEY`, `TELEGRAM_BOT_TOKEN`,
+Copy `.env.example` to `.env`, fill in `DEEPSEEK_API_KEY`, `FALLBACK_LLM_API_KEY`, `TELEGRAM_BOT_TOKEN`,
 and `TELEGRAM_CHAT_ID`, then run:
 
 ```bash
