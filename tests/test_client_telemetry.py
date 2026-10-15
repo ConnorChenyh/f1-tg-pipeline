@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import http.server
 import json
+import socketserver
+import threading
 import time
 import unittest
 from types import SimpleNamespace
@@ -12,6 +15,7 @@ import httpx
 from analyzer.net import RetryPolicy
 from generator.deepseek_client import (
     DeepSeekClient,
+    RequestWallClockTimeout,
     ResponseShapeError,
     RunDeadlineExceeded,
     TokenUsage,
@@ -510,3 +514,82 @@ class BudgetEnforcedInsideLoopTests(unittest.TestCase):
                 client.chat_json("m", "s", "p", stage="digest")
 
         self.assertEqual(client.usage.to_dict()["requests"], 1)
+
+
+class _KeepAliveHandler(http.server.BaseHTTPRequestHandler):
+    """DeepSeek's queued-request behaviour: 200, blank lines, then a choiceless body."""
+
+    protocol_version = "HTTP/1.1"
+    blank_lines = 30
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers["Content-Length"]))
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        try:
+            for _ in range(self.blank_lines):
+                self.wfile.write(b"1\r\n\n\r\n")
+                self.wfile.flush()
+                time.sleep(0.1)
+            body = b'{"error": {"message": "timeout"}}'
+            self.wfile.write(b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def log_message(self, *args: Any) -> None:
+        pass
+
+
+class StalledRequestTests(unittest.TestCase):
+    """10-15: a queued request answered 200 + keep-alive and hung for 900s."""
+
+    def setUp(self) -> None:
+        # Plain TCP server: HTTPServer.server_bind does a getfqdn() DNS lookup.
+        self.server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _KeepAliveHandler)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def _client(self, timeout: float, max_retries: int = 0) -> DeepSeekClient:
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
+            return DeepSeekClient(
+                {
+                    "deepseek": {
+                        "base_url": f"http://127.0.0.1:{self.server.server_address[1]}/v1",
+                        "max_retries": max_retries,
+                        "force_json_object": False,
+                        "timeout_sec": timeout,
+                        "max_total_seconds": 0,
+                    }
+                }
+            )
+
+    def test_keep_alive_cannot_outlast_the_request_timeout(self) -> None:
+        client = self._client(timeout=0.5)
+        started = time.monotonic()
+        with self.assertRaises(RuntimeError) as ctx:
+            client.chat_json("m", "s", "p", stage="topics")
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertIn("no complete response within", str(ctx.exception))
+        self.assertTrue(_is_retryable(RequestWallClockTimeout("x")))
+        self.assertEqual(client.usage.to_dict()["failed_requests"], 1)
+
+    def test_a_choiceless_body_is_retried_not_a_type_error(self) -> None:
+        _KeepAliveHandler.blank_lines = 0
+        self.addCleanup(setattr, _KeepAliveHandler, "blank_lines", 30)
+        client = self._client(timeout=5, max_retries=1)
+        with patch("generator.deepseek_client.time.sleep"):
+            with self.assertRaises(RuntimeError) as ctx:
+                client.chat_json("m", "s", "p", stage="topics")
+        self.assertIn("response has no choices", str(ctx.exception))
+        self.assertEqual(client.usage.to_dict()["requests"], 2)
+
+    def test_a_retry_after_a_choiceless_body_can_succeed(self) -> None:
+        client = _client(max_retries=1)
+        replies = iter((SimpleNamespace(choices=None, usage=None), _ok()))
+        with patch.object(client.client.chat.completions, "create", side_effect=lambda **k: next(replies)), \
+             patch("generator.deepseek_client.time.sleep"):
+            self.assertEqual(client.chat_json("m", "s", "p", stage="topics"), {"ok": True})

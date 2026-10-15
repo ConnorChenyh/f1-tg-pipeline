@@ -244,9 +244,10 @@ deepseek:
   max_retries: 1
   retry_backoff_sec: 1.0
   retry_max_backoff_sec: 30.0
-  # Per-request ceiling. The SDK default read timeout is 600s, which can stall
-  # a scheduled run for ten minutes on one hung connection.
-  timeout_sec: 120
+  # Per-request wall-clock ceiling (whole request, not just the gap between
+  # bytes: DeepSeek keeps a queued request alive with blank lines, which never
+  # trips a read timeout). Healthy calls take up to ~100s.
+  timeout_sec: 180
   # Cumulative ceiling for all model calls in one run. A per-request timeout
   # bounds a single call; this bounds the run so exhausted retries cannot hang
   # the scheduled job. 0 disables it.

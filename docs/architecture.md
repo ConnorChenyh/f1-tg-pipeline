@@ -322,8 +322,12 @@ is validated by `analyzer/url_safety.py` before the next request.
 
 `generator/deepseek_client.py` keeps the OpenAI SDK's own retry loop **disabled**
 (`max_retries=0`) so the outer loop is the only retry layer and the attempt count
-is real. Without that, one logical call could become up to six requests. It also
-sets an explicit `timeout_sec`, because the SDK default read timeout is 600s.
+is real. Without that, one logical call could become up to six requests.
+`timeout_sec` is a wall-clock limit on the whole request: the call runs on a
+daemon thread and the client stops waiting when it expires. The SDK timeout alone
+is an httpx read timeout, which DeepSeek's keep-alive blank lines for a queued
+request never trip (2026-10-15 a topic request hung for 900s). A 200 response
+without `choices` is a retryable provider error, not a crash.
 
 `TokenUsage` counts at the HTTP request boundary and keeps three separate numbers,
 because conflating them hides retry behaviour:
@@ -340,8 +344,10 @@ review use separate stage names, so their traffic does not collapse into
 `unknown`.
 
 `deepseek.max_total_seconds` caps the whole run's model time, checked before every
-request and again before accepting a response. The per-request timeout is clamped
-to the remaining budget, and a response arriving after the deadline is rejected.
+request and again before accepting a response. The per-request wall-clock limit is
+clamped to the remaining budget, so a stalled request ends the run with
+`RunDeadlineExceeded` instead of outliving it, and a response arriving after the
+deadline is rejected.
 
 ## Fetch Safety
 

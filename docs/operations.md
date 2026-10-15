@@ -367,8 +367,10 @@ The stage map distinguishes `topics`, `digest`, `fact_check`, and `final_review`
 `analyzer/net.py` retries standings and article fetches with jittered backoff.
 The OpenAI SDK's own retry loop is disabled so that `max_retries` in
 `config.yaml` is the true attempt budget; the SDK default of 2 would otherwise
-multiply requests. `deepseek.timeout_sec` bounds one request (default 120s,
-against the SDK's 600s default). Tune per call site:
+multiply requests. `deepseek.timeout_sec` is the wall-clock limit for one whole
+request (default 180s; healthy calls take up to ~100s). It is enforced by the
+client, not only as an httpx read timeout, because DeepSeek keeps a queued request
+alive with blank lines; a stalled request is abandoned and retried. Tune per call site:
 
 ```yaml
 season_context:

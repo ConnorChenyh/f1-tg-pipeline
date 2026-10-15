@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -127,6 +128,19 @@ class RunDeadlineExceeded(RuntimeError):
     """
 
 
+class RequestWallClockTimeout(TimeoutError):
+    """One request outlived its total time limit.
+
+    The SDK timeout is an httpx read timeout: it only bounds the gap between
+    received bytes. DeepSeek answers a queued request with 200 and keep-alive
+    blank lines, so a stalled request never trips it and can hang for 15 minutes.
+    """
+
+
+class ProviderResponseError(RuntimeError):
+    """The provider answered 200 without any choices (e.g. a queued request it gave up on)."""
+
+
 class JsonModeUnsupported(RuntimeError):
     """The provider rejected response_format; retry the same request without it."""
 
@@ -152,7 +166,7 @@ def _is_retryable(exc: Exception) -> bool:
     broken connection, but a raised httpx transport error can also reach here,
     and name matching alone misclassified it as a permanent caller error.
     """
-    if isinstance(exc, (ModelOutputError, JsonModeUnsupported)):
+    if isinstance(exc, (ModelOutputError, JsonModeUnsupported, RequestWallClockTimeout, ProviderResponseError)):
         return True
     try:
         import httpx
@@ -196,7 +210,7 @@ class DeepSeekClient:
         # max_retries=0 is deliberate: the SDK would otherwise retry twice
         # underneath this client's own retry loop, turning one logical call into
         # up to six requests and hiding the real attempt count.
-        self.request_timeout = float(deepseek_cfg.get("timeout_sec", 120))
+        self.request_timeout = float(deepseek_cfg.get("timeout_sec", 180))
         self.client = OpenAI(
             api_key=api_key,
             base_url=deepseek_cfg.get("base_url", "https://api.deepseek.com/v1"),
@@ -279,7 +293,7 @@ class DeepSeekClient:
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            return self.client.chat.completions.create(**kwargs)
+            return self._call_with_wall_clock(kwargs)
         except Exception as exc:
             if "response_format" not in kwargs or not _json_object_unsupported(exc):
                 raise
@@ -289,6 +303,30 @@ class DeepSeekClient:
             logger.warning("response_format json_object rejected: %s", exc)
             self._json_object_disabled = True
             raise JsonModeUnsupported(str(exc)) from exc
+
+    def _call_with_wall_clock(self, kwargs: dict[str, Any]) -> Any:
+        """Issue the request on a daemon thread and stop waiting at ``timeout``.
+
+        The abandoned thread keeps its connection until the server lets go, but
+        being a daemon it cannot keep the process alive, and the run moves on.
+        """
+        limit = float(kwargs["timeout"])
+        result: dict[str, Any] = {}
+
+        def call() -> None:
+            try:
+                result["response"] = self.client.chat.completions.create(**kwargs)
+            except BaseException as exc:  # re-raised on the caller's thread
+                result["error"] = exc
+
+        worker = threading.Thread(target=call, name="deepseek-request", daemon=True)
+        worker.start()
+        worker.join(limit)
+        if worker.is_alive():
+            raise RequestWallClockTimeout(f"no complete response within {limit:.0f}s")
+        if "error" in result:
+            raise result["error"]
+        return result["response"]
 
     def _repair_prompt(self, user_prompt: str, error: Exception, attempt: int) -> str:
         return (
@@ -327,6 +365,8 @@ class DeepSeekClient:
             response: Any = None
             try:
                 response = self._create_completion(model, system_prompt, current_prompt)
+                if not getattr(response, "choices", None):
+                    raise ProviderResponseError("response has no choices")
                 content = response.choices[0].message.content or ""
                 try:
                     payload = self._extract_json(content)
@@ -400,6 +440,14 @@ class DeepSeekClient:
                     attempts,
                     exc,
                 )
+                if isinstance(exc, RequestWallClockTimeout):
+                    # The request limit was clamped to the run budget; when that
+                    # is what ran out, report the budget, not a transport error.
+                    remaining = self.deadline_remaining()
+                    if remaining is not None and remaining <= 0:
+                        raise RunDeadlineExceeded(
+                            "model time budget exhausted while waiting for a response"
+                        ) from exc
                 if not _is_retryable(exc):
                     logger.warning("Non-retryable DeepSeek error; giving up early")
                     break
