@@ -132,6 +132,12 @@ candidate, while `meta.json.topics` holds the ones actually written.
 `analyzer/evidence.py` maps topic evidence URLs back to collected posts.
 `analyzer/article_fetcher.py` fetches article bodies when the URL is an article
 page. Jina Reader is tried first when enabled, with HTML extraction as fallback.
+Direct HTML fetching first sends a browser User-Agent and, when that is
+challenged (ESPN's CloudFront answers datacenter requests with an empty 202),
+retries once identified as `f1-xhs-pipeline/1.0`. Extraction takes the longest
+match of each body selector, so an empty leading `<article>` does not hide the
+story. Short CDN block or challenge pages ("Request blocked", Cloudflare
+checks) are treated as failed fetches, never stored as article evidence.
 
 `generator/evidence_pack.py` builds the compact grounding packet used by writer,
 fact-check, and final review prompts. Article body content is marked as

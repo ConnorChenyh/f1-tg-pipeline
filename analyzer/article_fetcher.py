@@ -35,6 +35,26 @@ SKIP_FETCH_HOSTS = {
     "x.com",
 }
 
+# Some CDNs (ESPN's CloudFront) challenge a browser User-Agent sent from a
+# datacenter address with an empty 202 but serve a plainly identified client.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+PIPELINE_USER_AGENT = "f1-xhs-pipeline/1.0"
+
+# Block or challenge pages that come back with a 200 and would otherwise be
+# stored as article evidence.
+BLOCK_PAGE_MARKERS = (
+    "request blocked",
+    "request could not be satisfied",
+    "access denied",
+    "attention required! | cloudflare",
+    "just a moment...",
+    "enable javascript and cookies to continue",
+    "are you a robot",
+)
+
 ARTICLE_BODY_SELECTORS = [
     "article",
     "[role='main']",
@@ -50,6 +70,14 @@ def _clean_text(text: str) -> str:
     text = HTML_TAG_RE.sub(" ", text)
     text = WHITESPACE_RE.sub("\n\n", text)
     return text.strip()
+
+
+def _looks_blocked(text: str) -> bool:
+    # Block pages are short; a long article that mentions "access denied" is not one.
+    if len(text) > 2000:
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in BLOCK_PAGE_MARKERS)
 
 
 def _should_fetch(url: str) -> bool:
@@ -224,10 +252,35 @@ def _fetch_via_jina(
         response.raise_for_status()
         text = _extract_jina_article_body(response.text)
         text = _clean_text(text)
+        if _looks_blocked(text):
+            logger.info("Jina returned a block page for %s", url)
+            return None
         return text if len(text) > 120 else None
     except Exception as exc:
         logger.info("Jina fetch failed for %s: %s", url, exc)
         return None
+
+
+def _extract_html_article_body(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+
+    for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+        tag.decompose()
+
+    # A page can hold several matches for a selector (ESPN starts with an empty
+    # <article>), so take the longest match and fall through when all are empty.
+    for selector in ARTICLE_BODY_SELECTORS:
+        texts = [_clean_text(node.get_text("\n", strip=True)) for node in soup.select(selector)]
+        best = max(texts, key=len, default="")
+        if len(best) > 120:
+            return best
+
+    paragraphs = [
+        _clean_text(p.get_text(" ", strip=True))
+        for p in soup.find_all("p")
+        if len(p.get_text(strip=True)) > 40
+    ]
+    return "\n\n".join(paragraphs[:12]).strip()
 
 
 def _fetch_via_html(
@@ -235,40 +288,25 @@ def _fetch_via_html(
     timeout_sec: int,
     policy: RetryPolicy | None = None,
 ) -> str | None:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    try:
-        response = _fetch_following_safe_redirects(url, timeout_sec, headers, policy, "article")
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
-            tag.decompose()
-
-        chunks: list[str] = []
-        for selector in ARTICLE_BODY_SELECTORS:
-            node = soup.select_one(selector)
-            if node:
-                chunks.append(_clean_text(node.get_text("\n", strip=True)))
-                break
-
-        if not chunks:
-            paragraphs = [
-                _clean_text(p.get_text(" ", strip=True))
-                for p in soup.find_all("p")
-                if len(p.get_text(strip=True)) > 40
-            ]
-            chunks.append("\n\n".join(paragraphs[:12]))
-
-        text = "\n\n".join(chunk for chunk in chunks if chunk).strip()
-        return text if len(text) > 120 else None
-    except Exception as exc:
-        logger.info("HTML fetch failed for %s: %s", url, exc)
-        return None
+    for user_agent in (BROWSER_USER_AGENT, PIPELINE_USER_AGENT):
+        try:
+            response = _fetch_following_safe_redirects(
+                url, timeout_sec, {"User-Agent": user_agent}, policy, "article"
+            )
+            response.raise_for_status()
+            text = _extract_html_article_body(response.text)
+        except UnsafeUrlError as exc:
+            logger.info("HTML fetch refused for %s: %s", url, exc)
+            return None
+        except Exception as exc:
+            logger.info("HTML fetch failed for %s (%s): %s", url, user_agent, exc)
+            continue
+        if _looks_blocked(text):
+            logger.info("HTML fetch got a block page for %s (%s)", url, user_agent)
+            continue
+        if len(text) > 120:
+            return text
+    return None
 
 
 def fetch_article_content(url: str, config: dict[str, Any]) -> dict[str, Any]:
