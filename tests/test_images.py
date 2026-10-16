@@ -32,6 +32,17 @@ class DigestImageTests(unittest.TestCase):
 
         self.assertEqual(lines, ["前", "McLaren", "后", "Mercedes-AMG"])
 
+    def test_wrap_text_keeps_accented_latin_names_intact(self) -> None:
+        draw = ImageDraw.Draw(Image.new("RGB", (400, 200)))
+        font = _load_font(30)
+        word_width = draw.textbbox((0, 0), "Câmara", font=font)[2]
+
+        lines = _wrap_text(draw, "签下Câmara与Hülkenberg", font, word_width + 5)
+
+        self.assertIn("Câmara", lines)
+        self.assertIn("Hülkenberg", lines)
+        self.assertEqual("".join(lines), "签下Câmara与Hülkenberg")
+
     def test_chinese_punctuation_wrap_preserves_text_and_width(self) -> None:
         draw = ImageDraw.Draw(Image.new("RGB", (400, 200)))
         font = _load_font(30)

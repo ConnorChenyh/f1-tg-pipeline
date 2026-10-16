@@ -16,7 +16,9 @@ F1_DARK = "#15151E"
 F1_LIGHT = "#F5F5F5"
 TEXT_WIDTH_RATIO = 0.9
 
-_WRAP_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+(?:[.'’/+&:-][A-Za-z0-9_]+)*|[ \t]+|.")
+# Latin letters include accented forms (Câmara, Pérez, Hülkenberg) so names wrap as whole words.
+_WORD_CHARS = "A-Za-z0-9_\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F"
+_WRAP_TOKEN_RE = re.compile(rf"[{_WORD_CHARS}]+(?:[.'’/+&:-][{_WORD_CHARS}]+)*|[ \t]+|.")
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
