@@ -133,5 +133,47 @@ class ReaderStylePipelineTests(unittest.TestCase):
         self.assertIn("Quotes, radio/social messages and ordinary phrases are not terms", digest_user)
 
 
+    def test_upcoming_event_status_and_total_scope_rules_reach_every_stage(self):
+        from copy import deepcopy
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from analyzer.context import RunContext
+        from generator.digest_writer import generate_digest
+
+        source = "https://example.com/gt-debut"
+        evidence = ("He is set to make his debut this weekend. The race starts on Sunday at 3pm. "
+                    "He has two wins and five total podium finishes this year.")
+        item = {"ordinal": "一", "headline": "车手本周末将迎来 GT 赛事首秀",
+                "content": "他将在本周日下午 3 点开赛的比赛中首秀；本赛季两胜，共五次登上领奖台。"}
+        prompts = []
+
+        def chat_json(model, system, user, validator=None, stage="unknown"):
+            prompts.append((stage, system, user))
+            payload = {"items": [deepcopy(item)], "sources": [source]}
+            if stage != "digest":
+                payload["fact_check_notes" if stage == "fact_check" else "review_notes"] = []
+            return validator(payload) if validator else payload
+
+        client = SimpleNamespace(model_writer="test", chat_json=chat_json)
+        topics = [{"id": "debut", "title_zh": "车手 GT 首秀", "evidence_urls": [source],
+                   "evidence_posts": [{"url": source, "source": "rss", "article_content": evidence,
+                                       "fetch_status": "ok"}]}]
+        draft, _notes, codes = generate_digest(client, topics,
+            RunContext(datetime(2026, 10, 16, 4, tzinfo=timezone.utc), 24, 2026), "围场新闻",
+            min_items=1, max_items=1, item_max_chars=500)
+        self.assertEqual(codes, [])
+        self.assertEqual(draft["items"][0]["headline"], item["headline"])
+        self.assertIn("Current datetime", next(user for stage, _, user in prompts if stage == "digest"))
+        for stage, system, user in prompts:
+            with self.subTest(stage=stage):
+                self.assertIn("不用“完成/锁定/夺得/已确定”这类完成态", system)
+                self.assertIn("小标题和正文的状态必须一致", system)
+                self.assertIn("不把“共 N 次”写成“另有 N 次”", system)
+        fact_check_user = next(user for stage, _, user in prompts if stage == "fact_check")
+        self.assertIn("never reads as completed or settled", fact_check_user)
+        self.assertIn("whether a total already includes items listed before it", fact_check_user)
+        review_user = next(user for stage, _, user in prompts if stage == "final_review")
+        self.assertIn("Check headlines separately from content", review_user)
+
 if __name__ == "__main__":
     unittest.main()

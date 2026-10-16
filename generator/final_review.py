@@ -82,10 +82,10 @@ Review rules:
 - Fix semantic errors caused by compressing separate actions into one sentence
 - For disputes, preserve the complete reasoning chain: who doubts which claim, and which evidence-backed budget/rule fact explains that doubt. Do not leave the reason as an unrelated final sentence.
 - Keep official Grand Prix names distinct from venues and preserve the calendar source timestamp and freshness when assessing conflicts. Do not invent cancellation/relocation history. Never upgrade a configured, stale or unavailable calendar into a claim about the current official position.
-- Re-check time wording: evidence.created_at, RSS publication time, and article publication time are not event time. Remove or soften “今天/周二/昨日/本周/过去24小时内发生” unless evidence.content explicitly supports that event timing
+- Re-check time wording: evidence.created_at, RSS publication time, and article publication time are not event time. Remove or soften “今天/周二/昨日/本周/过去24小时内发生” unless evidence.content explicitly supports that event timing. Check headlines separately from content: an event scheduled after the run context Current datetime must not be headlined with completed wording such as 完成/锁定/夺得
 - For event recaps whose event date is unclear or earlier than the run window, phrase them as “报道回顾/报道发布/视频显示”, not as newly happened events
 - Re-check names: drivers, team principals, teams, circuits, race names, seasons, car model years
-- Re-check each quote and number against its source sentence: same speaker, same direction (negation, question, hedging kept), same counting scope; a fact-checked draft can still carry a reversed quote or a widened/narrowed statistic
+- Re-check each quote and number against its source sentence: same speaker, same direction (negation, question, hedging kept), same counting scope (including whether a total already contains items listed before it); a fact-checked draft can still carry a reversed quote or a widened/narrowed statistic
 - Re-check technical terms against evidence. If a Chinese translation is not standard or you are not sure, keep the English term
 - Preserve acronyms exactly as written in evidence. If the source says “sistema STM”, keep STM; if another evidence text says “FTM blown exhaust system”, do not treat it as higher priority than article_content unless the article itself supports it
 - If a claim is unsupported, remove it or downgrade it to 报道称/讨论称/分析认为 according to evidence

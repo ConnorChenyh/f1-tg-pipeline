@@ -113,8 +113,8 @@ Rules:
 - Keep title exactly as digest title
 - Keep ordinals 一、二、三 format
 - Verify claims against grounded evidence.content; article_content content_basis is strongest. Model summaries are secondary context, not source truth
-- Go through every quote and every number, ranking or "first" claim in the draft one at a time and locate its source sentence in article_content. Check the speaker (not the reporter's background or an "it's understood" line), negation/question/hedging, and the counting scope (this race vs recent races vs season, driver vs team, tie vs rank). Fix every mismatch; if no source sentence is found, delete the claim
-- Fix causal/temporal errors (e.g. conflating separate events)
+- Go through every quote and every number, ranking or "first" claim in the draft one at a time and locate its source sentence in article_content. Check the speaker (not the reporter's background or an "it's understood" line), negation/question/hedging, and the counting scope (this race vs recent races vs season, driver vs team, tie vs rank, whether a total already includes items listed before it). Fix every mismatch; if no source sentence is found, delete the claim
+- Fix causal/temporal errors (e.g. conflating separate events) and status errors: compare every headline and sentence with the run context Current datetime, so an upcoming race, planned upgrade/penalty or expected effect never reads as completed or settled
 - For a dispute or scepticism item, make the logic explicit: identify the challenged claim and connect the stated reason or budget/rule evidence to why it is being challenged.
 - Verify Grand Prix names, venues and dates against the supplied dated official calendar and article evidence. A race name need not match the host country. Do not invent cancellation/relocation history or treat stale, unverified or unavailable calendar context as a current official contradiction.
 - Fix every deterministic quality guard issue before returning JSON
