@@ -214,6 +214,9 @@ PY
 Check `drafts/digest/meta.json`:
 
 - `social_only_without_article_content` means the evidence gate filtered thin social-only topics.
+  Check the topic's `corroboration` entry in `topics.json`: `no_article_found`
+  means the web search found no recent relevant article, `search_failed:*`
+  means the DeepSeek search call failed.
 - `topic_signature:<key>` means `topic_cooldowns` filtered a repeated broad theme
   even if the URL changed. No theme rules are configured at present (see the
   comment in `config.yaml`), so this reason only appears after a rule is added.

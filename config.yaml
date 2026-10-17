@@ -74,6 +74,23 @@ evidence_gate:
   # count as article evidence.
   min_article_chars: 800
 
+corroboration:
+  # Topics without a fetched article from an official/tier1/specialist site
+  # (social-only, video pages, untiered sites) get one DeepSeek web search;
+  # the best recent results are fetched and added as evidence. Snippets alone
+  # never count. Billed per successful search (about $0.75 per 1,000).
+  enabled: true
+  lookback_days: 3
+  max_topics: 4
+  max_articles_per_topic: 2
+  result_count: 10
+  # Untiered sites need at least this DeepSeek authority score (observed 0-4).
+  min_authority: 3
+  # Relevance floor: on-topic results scored about 1-2.7 in testing, loosely
+  # related pages (an equipment-supplier release mentioning the race) about 0.3.
+  min_rerank_score: 0.8
+  timeout_sec: 15
+
 source_tiers:
   official:
     weight: 1.8

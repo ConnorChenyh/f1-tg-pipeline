@@ -55,6 +55,7 @@ from analyzer.story_db import (
     record_candidates,
     record_published_topics,
 )
+from analyzer.corroboration import corroborate_topics
 from analyzer.topic_history import (
     append_topic_history,
     drop_published_posts,
@@ -646,9 +647,8 @@ def _main() -> int:
     if not reused_topics:
         # Already-published articles never reach topic extraction, so an old
         # URL re-pushed by a feed cannot drag a new topic into a shared_url skip.
-        shortlisted, removed_published_urls = drop_published_posts(
-            shortlisted, published_urls(ROOT, config, run_context.generated_at),
-        )
+        published = published_urls(ROOT, config, run_context.generated_at)
+        shortlisted, removed_published_urls = drop_published_posts(shortlisted, published)
         if not shortlisted:
             logging.error("Every shortlisted post was already published in the last %s days",
                           config.get("topic_history", {}).get("dedupe_days", 7))
@@ -690,6 +690,7 @@ def _main() -> int:
             return 1
         topics = enrich_topics_with_evidence(topics, shortlisted)
         topics = enrich_evidence_with_articles(topics, config)
+        topics = corroborate_topics(topics, config, run_context.generated_at, exclude_urls=published)
         topics, skipped_by_evidence = filter_topics_by_evidence_quality(topics, config)
         if skipped_by_evidence:
             skipped_recent_topics.extend(skipped_by_evidence)

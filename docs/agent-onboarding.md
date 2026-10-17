@@ -46,7 +46,7 @@ Docker 的 `scheduler.py` 负责每日生成和投递；当前没有独立的“
 | `python -m unittest discover -s tests` | 模拟客户端，无真实模型调用 | 临时测试目录 | 不发送 |
 | `python run.py --dry-run --hours 24` | 真实采集，可刷新赛历/积分榜；无模型调用 | 写运行产物，不更新共享历史/缓存 | 不发送 |
 | `python run.py --mock --hours 24` | 真实采集，可抓正文；模拟话题和文案 | 写运行产物，不更新共享历史/缓存 | 不发送 |
-| `python run.py --hours 24` | 真实采集与付费模型调用 | 写缓存、候选与短期编辑历史，可清理旧产物 | 不发送 |
+| `python run.py --hours 24` | 真实采集与付费模型调用，薄证据话题按次付费搜索 | 写缓存、候选与短期编辑历史，可清理旧产物 | 不发送 |
 | `python run.py --telegram-only output/<run> --telegram-dry-run` | 本地校验，无模型调用 | 校验既有稿件、图片与质量标记 | 不发送 |
 | `python run.py --hours 24 --push-telegram` | 真实采集与模型调用 | 更新运行及发布状态，先尝试补偿队列 | 真实发送 |
 | `python run.py --telegram-only output/<run>` | 无模型调用 | 按投递检查点发送并完成发布历史 | 真实发送 |

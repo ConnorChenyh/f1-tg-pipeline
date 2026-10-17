@@ -34,6 +34,9 @@ DeepSeek topic clustering
 evidence enrichment
   collected posts + fetched article bodies
     ↓
+search corroboration
+  thinly sourced topics: DeepSeek web search, fetch recent tiered/high-authority articles
+    ↓
 evidence/history gates
   social-only filtering, topic cooldowns, SQLite story DB, JSON topic history, minimum-item backfill
     ↓
@@ -138,6 +141,19 @@ retries once identified as `f1-xhs-pipeline/1.0`. Extraction takes the longest
 match of each body selector, so an empty leading `<article>` does not hide the
 story. Short CDN block or challenge pages ("Request blocked", Cloudflare
 checks) are treated as failed fetches, never stored as article evidence.
+
+`analyzer/corroboration.py` searches for coverage of thinly sourced topics.
+A topic with no fetched article (at least `evidence_gate.min_article_chars`)
+from an official, tier1 or specialist domain gets one DeepSeek web search
+(`POST {deepseek.base_url}/tools/search`): the first English evidence title plus
+`lang:en after:<date>`. Results must be article hosts, within
+`corroboration.lookback_days` and not after the run, at least
+`min_rerank_score` relevant, and either tiered or at least `min_authority`;
+tiered sites rank first, one per host. Up to `max_articles_per_topic` are
+fetched with the normal article fetcher and appended as `source: search`
+evidence; search snippets alone never count. `topics.json` records the query,
+added URLs and status under `corroboration`; a failed or empty search leaves
+the topic to the evidence gate. At most `max_topics` searches run per digest.
 
 `generator/evidence_pack.py` builds the compact grounding packet used by writer,
 fact-check, and final review prompts. Article body content is marked as

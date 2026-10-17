@@ -175,6 +175,9 @@ starts, then it will continue with the daily schedule.
 - Articles already delivered in the last week are removed before topic
   extraction, and recently delivered topics are shown to the topic model so a
   follow-up is only chosen for a substantive new development.
+- Topics backed only by social posts, video pages or untiered sites get one
+  DeepSeek web search; recent relevant articles are fetched and added as
+  evidence (`corroboration` in `config.yaml`, billed per search).
 - `topic_cooldowns` in `config.yaml` can suppress a repeated theme even when new
   URLs appear; no theme rules are configured at present.
 - If filtering leaves too few topics, the pipeline can add fallback topics from

@@ -79,6 +79,21 @@ def _source_tier(post: PostItem, config: dict[str, Any]) -> tuple[str, float]:
     return "unknown", 1.0
 
 
+def url_source_tier(url: str, config: dict[str, Any]) -> str:
+    """Tier name for a URL's host (domain tiers only), or "unknown"."""
+    host = _host(url)
+    for tier_name, tier in _source_tiers(config).items():
+        domains = [str(item).lower() for item in tier.get("domains", []) or []]
+        if host and any(host == domain or host.endswith(f".{domain}") for domain in domains):
+            return tier_name
+    return "unknown"
+
+
+def is_article_host(url: str) -> bool:
+    host = _host(url)
+    return bool(host) and not any(host == item or host.endswith(f".{item}") for item in NON_ARTICLE_HOSTS)
+
+
 def _title_text(post: PostItem) -> str:
     raw = f"{post.title or ''} {post.text or ''}"
     return TEXT_RE.sub(" ", raw.lower()).strip()
