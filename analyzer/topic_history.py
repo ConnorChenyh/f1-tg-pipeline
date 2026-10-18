@@ -259,7 +259,7 @@ def recent_published_topics(
     now: datetime,
 ) -> list[dict[str, Any]]:
     """Delivered topics shown to topic extraction so follow-ups need news."""
-    days = float(_history_config(config).get("follow_up_context_days", 3))
+    days = float(_history_config(config).get("follow_up_context_days", 7))
     if days <= 0:
         return []
     entries = _delivered_entries(root, config, now, days)

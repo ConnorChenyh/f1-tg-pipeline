@@ -69,8 +69,12 @@ class PublishedHistoryTests(unittest.TestCase):
             config = _history(Path(tmp), [
                 _entry(24, [OLD_URL], title="昨天"),
                 _entry(48, [OLD_URL], title="前天"),
-                _entry(24 * 4, [OLD_URL], title="四天前"),
+                _entry(24 * 5, [OLD_URL], title="五天前"),
+                _entry(24 * 8, [OLD_URL], title="八天前"),
             ])
+            titles = [item["title_zh"] for item in recent_published_topics(Path(tmp), config, NOW)]
+            self.assertEqual(titles, ["五天前", "前天", "昨天"])
+            config["topic_history"]["follow_up_context_days"] = 3
             titles = [item["title_zh"] for item in recent_published_topics(Path(tmp), config, NOW)]
             self.assertEqual(titles, ["前天", "昨天"])
             config["topic_history"]["follow_up_context_days"] = 0
@@ -113,6 +117,8 @@ class FollowUpPromptTests(unittest.TestCase):
                        recent_topics=[{"title_zh": "McLaren 队内相撞", "summary": "摘要"}])
         self.assertIn("McLaren 队内相撞", seen["user"])
         self.assertIn("no new development", seen["user"])
+        self.assertIn("happened after the published topic", seen["user"])
+        self.assertIn("same race weekend", seen["user"])
 
     def test_follow_up_fields_reach_writer_grounding(self) -> None:
         topic = dict(_stub_topic(), follow_up_of="McLaren 队内相撞", new_development="Stella 表态")

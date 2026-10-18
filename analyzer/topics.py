@@ -46,7 +46,7 @@ Rules:
 - publish_recommendation must be "publish" or "skip"
 - skip rumors, pure flame wars, or posts without verifiable facts
 - evidence_urls must come from the input posts
-- A topic about the same event as an already-published topic is a follow-up. Recommend publishing it only if the posts contain a substantive new development (a decision, penalty, result, official statement, new quote from a key person, or new data); otherwise mark it skip with skip_reason "no new development". Commentary that repeats the published story is not new
+- A topic about the same event as an already-published topic is a follow-up. Recommend publishing it only if the posts contain a substantive new development (a decision, penalty, result, official statement, new quote from a key person, or new data) that happened after the published topic; otherwise mark it skip with skip_reason "no new development". Commentary that repeats the published story is not new, and neither is a later article that collects remarks made at the same race weekend or event the published topic already covered
 - For a follow-up set follow_up_of to the published title_zh, set new_development to one Chinese sentence naming the new facts, and make title_zh and summary lead with that development rather than the recap
 - For a topic unrelated to any published topic, leave follow_up_of and new_development null
 """

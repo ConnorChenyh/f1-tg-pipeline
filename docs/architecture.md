@@ -185,8 +185,11 @@ whole topic. The removed URLs are listed in `topics_status.json`
 (`removed_published_urls`).
 
 Topic extraction also receives the topics delivered in the last
-`topic_history.follow_up_context_days` days (default 3). A topic about an
-already-published event is chosen only for a substantive new development; it
+`topic_history.follow_up_context_days` days (default 7, the same week as URL
+dedupe; media often repackage a race weekend's quotes several days later). A
+topic about an already-published event is chosen only for a substantive new
+development that happened after the published topic; remarks from the same race
+weekend collected in a later article do not count. Such a topic
 carries `follow_up_of` and `new_development`, and the writer leads with the new
 development and keeps earlier events to one background sentence.
 

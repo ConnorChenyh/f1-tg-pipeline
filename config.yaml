@@ -20,8 +20,9 @@ topic_history:
   unpublished_cooldown_hours: 1
   path: output/topic_history.json
   # Delivered topics from this many days are shown to topic extraction so a
-  # follow-up is only chosen for a substantive new development. 0 disables it.
-  follow_up_context_days: 3
+  # follow-up is only chosen for a substantive new development. Kept equal to
+  # dedupe_days: media repackage a weekend's quotes days later. 0 disables it.
+  follow_up_context_days: 7
 
 topic_cooldowns:
   enabled: true
