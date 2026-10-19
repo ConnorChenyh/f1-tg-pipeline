@@ -70,6 +70,7 @@ def filter_topics_by_evidence_quality(
                     "id": topic.get("id"),
                     "title_zh": topic.get("title_zh"),
                     "reason": "social_only_without_article_content",
+                    **({"corroboration": topic["corroboration"]} if topic.get("corroboration") else {}),
                 }
             )
             continue

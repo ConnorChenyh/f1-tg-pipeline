@@ -154,6 +154,10 @@ fetched with the normal article fetcher and appended as `source: search`
 evidence; search snippets alone never count. `topics.json` records the query,
 added URLs and status under `corroboration`; a failed or empty search leaves
 the topic to the evidence gate. At most `max_topics` searches run per digest.
+A topic whose evidence titles all contain non-ASCII characters (curly quotes,
+accents such as "Portimão", Chinese) gets no search and status `no_query`.
+When the evidence gate drops a topic, its `corroboration` record is kept on
+the `skipped_recent_topics` entry.
 
 `generator/evidence_pack.py` builds the compact grounding packet used by writer,
 fact-check, and final review prompts. Article body content is marked as

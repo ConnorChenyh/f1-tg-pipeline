@@ -156,7 +156,8 @@ def corroborate_topics(
             continue
         query = build_query(topic, now, lookback_days)
         if not query:
-            result.append(topic)
+            logger.info("Corroboration skipped for %r: no ASCII evidence title", topic.get("title_zh"))
+            result.append({**topic, "corroboration": {"query": None, "added": [], "status": "no_query"}})
             continue
         searched += 1
         item = dict(topic)

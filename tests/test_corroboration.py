@@ -126,6 +126,20 @@ class CorroborateTopicsTests(unittest.TestCase):
         self.assertEqual(len(out[0]["evidence_posts"]), 1)
         fetch.assert_not_called()
 
+    def test_topic_without_query_is_recorded_and_status_reaches_gate_skip(self) -> None:
+        out, post, _ = self._run([_reddit_topic("Max Verstappen’s GT3 weekend in Portimão"),
+                                  _tiered_topic(), _tiered_topic()], [])
+        post.assert_not_called()
+        self.assertEqual(out[0]["corroboration"]["status"], "no_query")
+        kept, skipped = filter_topics_by_evidence_quality(out, CONFIG)
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(skipped[0]["corroboration"]["status"], "no_query")
+
+    def test_gate_skip_without_corroboration_record_has_no_key(self) -> None:
+        topics = [_reddit_topic(), _tiered_topic(), _tiered_topic()]
+        _, skipped = filter_topics_by_evidence_quality(topics, CONFIG)
+        self.assertNotIn("corroboration", skipped[0])
+
     def test_disabled_by_default(self) -> None:
         topics = [_reddit_topic()]
         self.assertIs(corr.corroborate_topics(topics, {}, NOW), topics)
