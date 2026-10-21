@@ -129,8 +129,6 @@ class ReaderStylePipelineTests(unittest.TestCase):
                 self.assertIn("不要机械翻译未知专名和技术词", system)
         fact_check_user = next(user for stage, _, user in prompts if stage == "fact_check")
         self.assertIn("never add an English quote yourself", fact_check_user)
-        digest_user = next(user for stage, _, user in prompts if stage == "digest")
-        self.assertIn("Quotes, radio/social messages and ordinary phrases are not terms", digest_user)
 
 
     def test_upcoming_event_status_and_total_scope_rules_reach_every_stage(self):

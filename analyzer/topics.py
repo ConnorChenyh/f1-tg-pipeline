@@ -43,6 +43,7 @@ Return JSON with this exact shape:
 Rules:
 - Return {min_topics} to {max_topics} candidate topics when the input contains enough distinct stories
 - heat_score must be an integer between 0 and 100, with no units or extra text
+- heat_score ranks news value for readers, not post volume alone. Substantive developments (results, penalties, decisions, contracts, official statements, technical changes, legal disputes, revealing interviews) rank above a preview of a scheduled weekend (session times, weather, circuit guide) and above fan content (liveries, posters, memes). Score a pure preview or fan-content topic below every substantive story; it fills a slot only when there are not enough substantive stories
 - publish_recommendation must be "publish" or "skip"
 - skip rumors, pure flame wars, or posts without verifiable facts
 - evidence_urls must come from the input posts

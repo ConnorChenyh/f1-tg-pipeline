@@ -49,33 +49,25 @@ Return JSON with this exact shape:
 }}
 
 Rules:
-- Include {min_items} to {max_items} items
-- ordinals must be Chinese numerals: 一、二、三、四、五
-- Each item covers ONE distinct topic from the input
-- There is no minimum or target length and no fixed sentence count. A brief news item may be one or two sentences.
-- Never exceed {item_max_chars} Chinese characters for item content; it must fit on one image.
-- Preserve useful evidence-backed facts, quotes, numbers and essential context. More evidence entries or a fetched article do not by themselves justify a longer item.
-- Every sentence must add reader-relevant information. Do not repeat the headline, pad with generic significance, or add unnecessary explanations of accurately named titles.
-- Evidence limitations and editorial decisions belong only in risk_note or review notes, never in headlines, hook or item content.
-- Omit unsupported details silently. Do not list what an article did not say or explain why you are not adding more.
-- Attribute reports concisely and keep material statuses such as a proposal awaiting approval; do not add generic credibility disclaimers.
-- Use each evidence.content as the source of truth; model_summary is secondary context only
-- When content_basis is article_content, summarize/translate from article_content, not the title or RSS text
-- When source_note says social post only or RSS/title snippet only, keep claims explicitly anchored (视频显示/帖文称/报道标题称) and do not add detail
-- Never treat evidence.created_at, RSS publication time, or article publication time as the event time. Only write “今天/周二/昨日/本周” for the event itself when evidence.content explicitly says the event happened at that time
-- If an article is a later recap of an event whose event date is unclear or outside the run window, write “报道回顾/报道发布/视频显示” instead of implying it happened in the last 24 hours
-- Preserve event sequence accurately; do not merge separate actions into one sentence
-- For a dispute or scepticism item, state the complete chain in one place: who challenges which specific claim, and the evidence-backed reason for that challenge. Do not leave a rule, budget allowance, or technical detail as detached background.
-- Distinguish a Grand Prix's official name from its actual venue. Use the supplied dated official calendar and article evidence; do not infer location from the race name or invent cancellation/relocation history. Never present stale, unverified or unavailable calendar context as the current official position or use it to label newer reporting a rumor.
-- Never write that someone drove a car onto a balcony unless the evidence literally says that
-- Translate champion/title/win/podium carefully; avoid “新科冠军” unless the evidence explicitly supports that exact meaning
-- For technical acronyms, aero parts, power-unit systems, and named upgrades, keep the original English term unless a reliable common Chinese name is evident in the evidence. Quotes, radio/social messages and ordinary phrases are not terms: always render them in Chinese
-- Do not force-translate uncertain technical terms such as “STM blown exhaust”; prefer English or English plus a brief Chinese explanation
-- Avoid exaggerated idioms such as 军令状、暗流涌动、最大谜题、亲自下场、满天飞
-- ONLY use facts from evidence.content; label speculation as 讨论/传闻/分析
-- sources should collect unique evidence URLs from all topics
-- Do not repeat the same story twice
-- When a topic has follow_up_of, readers already saw that story in an earlier digest: lead with new_development and the new evidence-backed facts, and give the earlier events at most one short background sentence
+Earlier drafts most often made three mistakes that reviewers then had to fix. Avoid them while writing:
+1. Changing a quote's strength. Keep the speaker and every hedge, condition and time limit they used. "I think they'll be a bit worried" → “我认为他们会有点担忧”, not “他们很担忧”; "maybe (forse)" keeps “可能”; "even if the move was on" keeps “即使那个动作当时可行”; "for now / as far as I know" keeps “目前/据我所知”.
+2. Writing something unfinished as done. Compare with the run context Current datetime: an upcoming race, a plan, a hope or an ongoing process stays 将/计划/希望/正在 in both headline and content ("he's earning his place" → “正在赢得”, not “已赢得”).
+3. Stating social posts as fact. Anything that comes only from a Reddit/social post (a livery, a poster, a quoted line) is written as 帖文称/图片显示.
+
+Format:
+- {min_items} to {max_items} items with ordinals 一、二、三、四、五; each item is a different topic from the input, none repeated
+- At most {item_max_chars} Chinese characters of item content, so it fits one image. There is no minimum or target length; a brief item may be one or two sentences. Every sentence adds reader-relevant information: do not repeat the headline or pad with generic significance
+- sources: the unique evidence URLs of all topics, copied exactly
+
+Evidence:
+- evidence.content is the source of truth; when content_basis is article_content, write from the article, not the title or RSS text. model_summary is context, not evidence
+- When source_note says social post only or RSS/title snippet only, anchor every claim (帖文称/报道标题称) and add no detail
+- Publication time (created_at, RSS or article time) is not event time. Write 今天/昨日/周二/本周 for an event only when evidence.content says so; a later recap of an older or undated event is 报道回顾, not news from the last 24 hours
+- Keep separate actions separate and in their real order
+- For a dispute, say in one place who challenges which claim and the evidence-backed reason
+- A Grand Prix's name is not its venue: use the dated official calendar and the articles, do not invent cancellation/relocation history, and never present stale or unavailable calendar context as the current official position
+- When a topic has follow_up_of, readers already saw that story: lead with new_development and give earlier events at most one short background sentence
+- Evidence limitations and editorial decisions go only in risk_note. Omit unsupported details silently
 """
 
 

@@ -120,6 +120,11 @@ The topic extractor returns candidate topics with:
 - `evidence_urls`
 - `publish_recommendation`
 
+`heat_score` ranks news value rather than post volume: results, penalties,
+decisions, contracts, official statements, technical changes, legal disputes and
+revealing interviews score above a pure race-weekend preview (session times,
+weather) or fan content (liveries, posters), which only fill spare slots.
+
 The heat threshold is applied, but if there are too few candidates, the extractor
 can backfill from lower-heat model candidates before evidence gates run.
 
