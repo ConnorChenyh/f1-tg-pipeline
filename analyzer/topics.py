@@ -176,11 +176,16 @@ def extract_topics(
     candidates.sort(key=lambda t: t.get("heat_score") or 0, reverse=True)
 
     filtered: list[dict[str, Any]] = []
+    below_threshold: list[str] = []
     for topic in candidates:
         heat = topic.get("heat_score") or 0
         if heat < heat_threshold:
+            below_threshold.append(f"{topic.get('title_zh')} ({heat})")
             continue
         filtered.append(topic)
+    if below_threshold:
+        # Dropped candidates are not persisted; this line is the only record.
+        logger.info("Topics below heat_threshold %d: %s", heat_threshold, "; ".join(below_threshold))
 
     if len(filtered) < min_topics:
         seen_ids = {id(topic) for topic in filtered}

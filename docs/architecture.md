@@ -127,6 +127,10 @@ weather) or fan content (liveries, posters), which only fill spare slots.
 
 The heat threshold is applied, but if there are too few candidates, the extractor
 can backfill from lower-heat model candidates before evidence gates run.
+Candidates dropped by the threshold are not persisted; the log line
+`Topics below heat_threshold` lists their titles and scores. The model scores
+substantive stories around 45–60, so a higher threshold also discards the spare
+candidates described below.
 
 Extraction asks for `digest.min_items` to `digest.max_items +
 digest.topic_candidate_extra` candidates (default extra 0; `config.yaml` uses 2).

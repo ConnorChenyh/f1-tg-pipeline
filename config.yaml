@@ -1,5 +1,7 @@
 window_hours: 24
-heat_threshold: 55
+# Substantive stories usually score 45-60. At 55 the extractor kept only 3-4 of
+# its 6-7 candidates, losing the topic_candidate_extra spares.
+heat_threshold: 45
 
 digest:
   title: "围场过去24H新闻"

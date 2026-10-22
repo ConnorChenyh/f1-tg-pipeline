@@ -182,6 +182,42 @@ class ExtractTopicsResilienceTests(unittest.TestCase):
         self.assertEqual(len(topics), 1)
         self.assertEqual(topics[0]["heat_score"], 0)
 
+    def test_below_threshold_candidates_are_dropped_and_logged(self) -> None:
+        client, _ = _client(
+            [
+                '{"topics": ['
+                '{"title_zh": "规则新闻", "heat_score": 80, "publish_recommendation": "publish"},'
+                '{"title_zh": "车手访谈", "heat_score": 50, "publish_recommendation": "publish"},'
+                '{"title_zh": "粉丝海报", "heat_score": 30, "publish_recommendation": "publish"}]}'
+            ]
+        )
+        posts = [
+            SimpleNamespace(
+                source="rss",
+                title="t",
+                text="body",
+                url="https://a.example/1",
+                created_at=__import__("datetime").datetime(2026, 9, 11, tzinfo=__import__("datetime").timezone.utc),
+                raw_score=1.0,
+                likes=0,
+                replies=0,
+                retweets=0,
+            )
+        ]
+
+        with self.assertLogs("analyzer.topics", level="INFO") as logs:
+            topics = extract_topics(
+                client,
+                posts,
+                heat_threshold=45,
+                run_context=SimpleNamespace(to_prompt_block=lambda: "ctx"),
+                min_topics=1,
+                max_topics=5,
+            )
+
+        self.assertEqual([t["title_zh"] for t in topics], ["规则新闻", "车手访谈"])
+        self.assertTrue(any("below heat_threshold 45: 粉丝海报 (30)" in line for line in logs.output))
+
 
 if __name__ == "__main__":
     unittest.main()
