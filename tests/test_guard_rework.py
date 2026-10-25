@@ -32,6 +32,38 @@ class GuardReworkTests(unittest.TestCase):
             self.assertEqual(repaired["sources"], [unknown])
             review.assert_called_once()
 
+    def test_id_before_slug_restores_exact_evidence_url_without_model(self):
+        original = "https://www.espn.com/f1/story/_/id/50250076/charles-leclerc-seeking-answers-austin"
+        other = "https://www.espn.com/f1/story/_/id/50250074/max-verstappen-painkillers-austin"
+        invented = "https://www.espn.com/f1/story/_/id/50250076/leclerc-wants-answers"
+        client = SimpleNamespace(chat_json=MagicMock())
+        draft, _ = repair_digest(client, {"sources": [invented]}, [{"evidence_urls": [original, other]}],
+            None, "日报", [{"code": "unknown_source", "severity": "error"}])
+        self.assertEqual(draft["sources"], [original])
+        client.chat_json.assert_not_called()
+
+    def test_date_path_with_different_slug_is_not_treated_as_same_article(self):
+        original = "https://example.com/2026/10/original-story"
+        unknown = "https://example.com/2026/10/other-story"
+        draft = {"sources": [unknown], "items": [{"headline": "标题", "content": "正文"}]}
+        with patch("generator.digest_writer.final_review_digest", return_value=(draft, [])) as review:
+            repaired, _ = repair_digest(None, draft, [{"evidence_urls": [original]}], None, "日报",
+                [{"code": "unknown_source", "severity": "error"}])
+        self.assertEqual(repaired["sources"], [unknown])
+        review.assert_called_once()
+
+    def test_unknown_source_issue_names_the_offending_url(self):
+        from generator.quality_guard import validate_digest
+        good = "https://example.com/news/original"
+        bad = "https://example.com/news/invented"
+        draft = {"title": "日报", "items": [{"ordinal": "一", "headline": "升级", "content": "车队调整底板。"}],
+                 "sources": [good, bad]}
+        issues = [issue for issue in validate_digest(draft, [{"evidence_urls": [good]}])
+                  if issue.code == "unknown_source"]
+        self.assertEqual([issue.location for issue in issues], ["sources[2]"])
+        self.assertIn(bad, issues[0].message)
+        self.assertNotIn(good, issues[0].message)
+
     def test_final_review_new_bad_source_is_returned_for_rework(self):
         good = {"title": "日报", "items": [{"ordinal": "一", "headline": "升级", "content": "车队调整底板。"}],
                 "sources": ["https://example.com/original"]}

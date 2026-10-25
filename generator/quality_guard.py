@@ -149,7 +149,9 @@ def _validate_sources(draft: dict[str, Any], topics: list[dict[str, Any]] | None
                     "unknown_source",
                     "error",
                     f"sources[{index}]",
-                    "sources 中包含不在 evidence_urls/evidence_posts 里的链接。",
+                    # The 1-based index alone sent reworks to the wrong entry;
+                    # name the URL so the editor replaces the right one.
+                    f"sources 中包含不在 evidence_urls/evidence_posts 里的链接：{source}",
                 )
             )
 

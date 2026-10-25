@@ -218,9 +218,12 @@ def repair_digest(
     quality_issues: list[dict[str, str]],
 ) -> tuple[dict[str, Any], list[str]]:
     """Return a rejected draft to the editor with evidence and exact failures."""
-    # Some publishers identify an article by its final numeric path segment.
-    # Restore an invented slug only when the evidence has exactly one URL for
-    # that host, route and article ID. Different IDs/domains remain blocked.
+    # Publishers identify an article by a numeric path segment, before the slug
+    # (ESPN /id/<id>/<slug>) or after it (Motorsport /<slug>/<id>). Restore an
+    # invented slug only when the evidence has exactly one URL for that host and
+    # route whose path differs in that single slug segment. Short numbers
+    # (dates such as /2026/10/) are not article IDs. Different IDs/domains
+    # remain blocked.
     expected = collect_evidence_source_urls(topics)
     repaired_sources = []
     source_notes = []
@@ -229,12 +232,16 @@ def repair_digest(
         parsed = urlsplit(normalized)
         parts = parsed.path.strip("/").split("/")
         candidates = []
-        if normalized not in expected and len(parts) >= 2 and parts[-1].isdigit():
+        if normalized not in expected and any(part.isdigit() and len(part) >= 5 for part in parts):
             for url in sorted(expected):
                 other = urlsplit(url)
                 other_parts = other.path.strip("/").split("/")
-                if (parsed.scheme == other.scheme and parsed.netloc == other.netloc
-                        and parts[:-2] == other_parts[:-2] and parts[-1] == other_parts[-1]):
+                if (parsed.scheme != other.scheme or parsed.netloc != other.netloc
+                        or len(parts) != len(other_parts)):
+                    continue
+                differing = [i for i, (a, b) in enumerate(zip(parts, other_parts)) if a != b]
+                if len(differing) == 1 and not parts[differing[0]].isdigit() \
+                        and not other_parts[differing[0]].isdigit():
                     candidates.append(url)
         if len(candidates) == 1:
             repaired_sources.append(candidates[0])
