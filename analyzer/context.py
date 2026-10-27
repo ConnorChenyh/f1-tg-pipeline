@@ -46,7 +46,7 @@ class RunContext:
     def to_prompt_block(self) -> str:
         local = self.generated_at.astimezone()
         block = (
-            f"- Current datetime (local): {local.strftime('%Y-%m-%d %H:%M %Z')}\n"
+            f"- Current datetime (local): {local.strftime('%Y-%m-%d %A %H:%M %Z')}\n"
             f"- F1 season year: {self.f1_season}\n"
             f"- Evidence window: last {self.window_hours} hours\n"
             f"- Treat post timestamps as the freshness anchor; do not rely on stale training knowledge."

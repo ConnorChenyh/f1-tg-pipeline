@@ -62,7 +62,7 @@ Format:
 Evidence:
 - evidence.content is the source of truth; when content_basis is article_content, write from the article, not the title or RSS text. model_summary is context, not evidence
 - When source_note says social post only or RSS/title snippet only, anchor every claim (帖文称/报道标题称) and add no detail
-- Publication time (created_at, RSS or article time) is not event time. Write 今天/昨日/周二/本周 for an event only when evidence.content says so; a later recap of an older or undated event is 报道回顾, not news from the last 24 hours
+- Publication time (created_at, RSS or article time) is not event time, and relative words in evidence.content or quotes (today, this week, next weekend) count from the day the article was written or the quote was spoken: restate them from the run context Current datetime or name the race/day instead. A later recap of an older or undated event is 报道回顾, not news from the last 24 hours
 - Keep separate actions separate and in their real order
 - For a dispute, say in one place who challenges which claim and the evidence-backed reason
 - A Grand Prix's name is not its venue: use the dated official calendar and the articles, do not invent cancellation/relocation history, and never present stale or unavailable calendar context as the current official position

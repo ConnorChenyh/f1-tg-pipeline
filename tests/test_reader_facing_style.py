@@ -173,5 +173,50 @@ class ReaderStylePipelineTests(unittest.TestCase):
         review_user = next(user for stage, _, user in prompts if stage == "final_review")
         self.assertIn("Check headlines separately from content", review_user)
 
+    def test_relative_time_words_are_recounted_from_run_datetime_in_every_stage(self):
+        from copy import deepcopy
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from analyzer.context import RunContext
+        from generator.digest_writer import generate_digest
+
+        source = "https://example.com/sunday-debrief"
+        # Said after a Sunday race; the digest runs two days later.
+        evidence = '"We have to do a better job next week," the team boss said after Sunday\'s race.'
+        item = {"ordinal": "一", "headline": "领队：本周的下一站要做得更好",
+                "content": "领队在周日赛后表示，车队在下一站要做得更好。"}
+        prompts = []
+
+        def chat_json(model, system, user, validator=None, stage="unknown"):
+            prompts.append((stage, system, user))
+            payload = {"items": [deepcopy(item)], "sources": [source]}
+            if stage != "digest":
+                payload["fact_check_notes" if stage == "fact_check" else "review_notes"] = []
+            return validator(payload) if validator else payload
+
+        client = SimpleNamespace(model_writer="test", chat_json=chat_json)
+        topics = [{"id": "debrief", "title_zh": "领队赛后复盘", "evidence_urls": [source],
+                   "evidence_posts": [{"url": source, "source": "rss", "article_content": evidence,
+                                       "fetch_status": "ok"}]}]
+        run_context = RunContext(datetime(2026, 10, 27, 4, tzinfo=timezone.utc), 24, 2026)
+        draft, _notes, codes = generate_digest(client, topics, run_context, "围场新闻",
+            min_items=1, max_items=1, item_max_chars=500)
+        self.assertEqual(codes, [])
+        self.assertEqual(draft["items"][0]["content"], item["content"])
+        weekday = datetime(2026, 10, 27, 4, tzinfo=timezone.utc).astimezone().strftime("%A")
+        self.assertIn(weekday, run_context.to_prompt_block())
+        for stage, system, user in prompts:
+            with self.subTest(stage=stage):
+                self.assertIn("要以 Current datetime 重新换算", system)
+                self.assertIn("不照搬相对时间词", system)
+                self.assertIn(weekday, user)
+        digest_user = next(user for stage, _, user in prompts if stage == "digest")
+        self.assertIn("count from the day the article was written or the quote was spoken", digest_user)
+        self.assertNotIn("only when evidence.content says so", digest_user)
+        fact_check_user = next(user for stage, _, user in prompts if stage == "fact_check")
+        self.assertIn("rather than copied from the article's or speaker's day", fact_check_user)
+        review_user = next(user for stage, _, user in prompts if stage == "final_review")
+        self.assertIn("recount relative words taken from an article or quote", review_user)
+
 if __name__ == "__main__":
     unittest.main()
