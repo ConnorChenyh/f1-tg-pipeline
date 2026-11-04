@@ -95,7 +95,8 @@ def _run_pipeline_once(config_path: Path, hours: int, push_telegram: bool,
     return code
 
 
-def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec: int = 1800) -> int:
+def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec: int = 1800,
+                 retry_backoff_sec: float = 300) -> int:
     deadline = time.monotonic() + max(1, timeout_sec)
     code = 1
     for attempt in range(3):
@@ -109,6 +110,15 @@ def run_pipeline(config_path: Path, hours: int, push_telegram: bool, timeout_sec
         logging.error("Scheduled pipeline attempt %s/3 failed: exit %s", attempt + 1, code)
         if code == 124:
             break
+        if attempt < 2:
+            delay = max(1, retry_backoff_sec) * (2 ** attempt)
+            remaining = deadline - time.monotonic()
+            if remaining <= delay:
+                logging.error("Insufficient deadline for %.0fs recovery backoff; stopping retries", delay)
+                code = 124
+                break
+            logging.info("Waiting %.0fs before scheduled pipeline attempt %s/3", delay, attempt + 2)
+            time.sleep(delay)
     if push_telegram:
         try:
             from publisher.telegram_text import send_text_to_telegram
@@ -158,14 +168,15 @@ def main() -> int:
     )
 
     timeout_sec = int(scheduler_cfg.get("timeout_sec", 1800))
+    retry_backoff_sec = float(scheduler_cfg.get("retry_backoff_sec", 300))
     if run_on_start:
-        run_pipeline(config_path, hours, push_telegram, timeout_sec)
+        run_pipeline(config_path, hours, push_telegram, timeout_sec, retry_backoff_sec)
 
     while True:
         target = next_run_at(datetime.now(tz), daily_at)
         logging.info("Next scheduled run: %s", target.isoformat())
         sleep_until(target)
-        run_pipeline(config_path, hours, push_telegram, timeout_sec)
+        run_pipeline(config_path, hours, push_telegram, timeout_sec, retry_backoff_sec)
 
 
 if __name__ == "__main__":

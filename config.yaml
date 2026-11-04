@@ -313,6 +313,8 @@ rss_fetch:
 
 scheduler:
   timeout_sec: 1800
+  # Recovery waits 5 then 10 minutes; both waits count toward timeout_sec.
+  retry_backoff_sec: 300
   timezone: Asia/Hong_Kong
   daily_at: "12:00"
   hours: 24

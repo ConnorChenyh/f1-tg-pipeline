@@ -266,7 +266,10 @@ slug) uniquely match an evidence URL. Unknown articles and ambiguous matches
 still require editorial repair; the `unknown_source` issue names the offending
 URL so the editor does not misread its 1-based `sources[N]` location. Exhausted rejection returns a nonzero exit code and remains resumable.
 The scheduler runs up to three attempts within one total deadline, resumes failed
-stages, and attempts a Telegram failure alert if recovery is exhausted. Delivery
+stages, and waits with exponential backoff between attempts (5 then 10 minutes
+by default, configured by `scheduler.retry_backoff_sec`). These waits consume the
+same deadline; if the next wait would exhaust it, recovery stops without an
+immediate retry. It attempts a Telegram failure alert if recovery is exhausted. Delivery
 checkpoints prevent duplicate sends and prohibit rewriting partially sent payloads. Blocking codes caused by a regex false positive are visible in
 `meta.json`.
 

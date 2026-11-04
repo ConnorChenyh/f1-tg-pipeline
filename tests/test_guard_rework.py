@@ -92,6 +92,11 @@ class GuardReworkTests(unittest.TestCase):
 
 
 class ScheduledRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        sleep_patch = patch("scheduler.time.sleep")
+        sleep_patch.start()
+        self.addCleanup(sleep_patch.stop)
+
     def test_failed_job_resumes_before_returning_success(self):
         with patch.object(scheduler, "_run_pipeline_once", side_effect=[1, 0]) as execute:
             self.assertEqual(scheduler.run_pipeline(Path("config.yaml"), 24, True), 0)
